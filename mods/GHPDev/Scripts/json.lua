@@ -8,6 +8,16 @@ local function jsonString(s)
     end) .. '"'
 end
 
+-- Only tables whose keys are exactly 1..n are arrays; anything else is written as an object.
+local function isArray(t)
+    local count = 0
+    for key in pairs(t) do
+        if math.type(key) ~= "integer" then return false end
+        count = count + 1
+    end
+    return count == #t
+end
+
 function Json.encode(value)
     local kind = type(value)
     if kind == "number" then
@@ -18,16 +28,16 @@ function Json.encode(value)
     elseif kind == "nil" then
         return "null"
     elseif kind == "table" then
-        if value[1] ~= nil or next(value) == nil then
+        if isArray(value) then
             local parts = {}
             for i, item in ipairs(value) do parts[i] = Json.encode(item) end
             return "[" .. table.concat(parts, ",") .. "]"
         end
         local keys = {}
-        for key in pairs(value) do keys[#keys + 1] = tostring(key) end
-        table.sort(keys)
+        for key in pairs(value) do keys[#keys + 1] = key end
+        table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
         local parts = {}
-        for _, key in ipairs(keys) do parts[#parts + 1] = jsonString(key) .. ":" .. Json.encode(value[key]) end
+        for _, key in ipairs(keys) do parts[#parts + 1] = jsonString(tostring(key)) .. ":" .. Json.encode(value[key]) end
         return "{" .. table.concat(parts, ",") .. "}"
     end
     return jsonString(tostring(value))

@@ -84,7 +84,7 @@ end
 local function save(from, to)
     local record = { frames = {}, events = {} }
     for _, f in ipairs(frames) do
-        if f[1] >= from and f[1] <= to then record.frames[#record.frames + 1] = f end
+        if f.t >= from and f.t <= to then record.frames[#record.frames + 1] = f end
     end
     for _, e in ipairs(events) do
         if e.t >= from and e.t <= to then record.events[#record.events + 1] = e end
@@ -128,9 +128,14 @@ local function tick()
         frames, events, watched = {}, {}, {}
         return
     end
-    local frame = { t }
+    local frame = { t = t } -- keyed only: the JSON writer drops named fields from tables with an array part
     local l, r = pawn:K2_GetActorLocation(), pawn:K2_GetActorRotation()
     frame.golfer = { l.X, l.Y, l.Z, r.Yaw, pc:GetControlRotation().Yaw, pawn.bUseControllerRotationYaw and 1 or 0 }
+    local camera = pc.PlayerCameraManager
+    if valid(camera) then
+        local cl, cr = camera:GetCameraLocation(), camera:GetCameraRotation()
+        frame.camera = { cl.X, cl.Y, cl.Z, cr.Pitch, cr.Yaw }
+    end
     if putter ~= nil then
         frame.head = xyz(putter.ClubHeadCollisionDummy:K2_GetComponentLocation())
         local proxy = putter.ClubHeadCollisionProxy
@@ -138,6 +143,8 @@ local function tick()
             frame.proxy = xyz(proxy:K2_GetActorLocation())
             frame.proxyCollision = proxy.StaticMesh:GetCollisionEnabled()
             frame.proxyCheck = proxy.CheckHIt and 1 or 0
+            frame.proxyPending = valid(proxy.PendingHit) and proxy.PendingHit:GetFName():ToString() or nil
+            frame.proxyTarget = valid(proxy.ActorToHit) and proxy.ActorToHit:GetFName():ToString() or nil
         end
         local swing = putter.RGGolfSwing
         local stroke = swing.ActiveStroke
@@ -164,7 +171,7 @@ local function tick()
         frame.balls[#frame.balls + 1] = { ball:GetFName():ToString(), b.X, b.Y, b.Z, v.X, v.Y, v.Z, w.X, w.Y, w.Z }
     end
     frames[#frames + 1] = frame
-    trim(frames, t - BEFORE - AFTER - 1)
+    trim(frames, t - BEFORE - AFTER - 1, "t")
     trim(events, t - BEFORE - AFTER - 1, "t")
 end
 
@@ -202,7 +209,11 @@ function Watch.start(devDir)
             local actor = unwrap(other)
             if isBall(actor) then
                 watch(actor)
-                touched(now(head), "Head.Overlap", { ball = actor:GetFName():ToString(), check = head.CheckHIt })
+                touched(now(head), "Head.Overlap", {
+                    ball = actor:GetFName():ToString(), check = head.CheckHIt,
+                    pending = valid(head.PendingHit) and head.PendingHit:GetFName():ToString() or nil,
+                    target = valid(head.ActorToHit) and head.ActorToHit:GetFName():ToString() or nil,
+                })
             end
         end)
     hook(BALL, "OnHitByGolfClub", function(ball, component, launch, offset, instigator, localHit)

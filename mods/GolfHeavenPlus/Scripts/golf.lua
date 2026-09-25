@@ -119,6 +119,35 @@ function Golf.shot(club, ball, pawn)
     }
 end
 
+local PUTT_ELEVATION = math.rad(12) -- putters launch ~6 degrees up (arc 0.9); every other club launches over 20
+
+local function unwrap(param)
+    local ok, value = pcall(function() return param:get() end)
+    if ok then return value end
+    return param
+end
+
+-- Whether a launch came from a putter: the hitter's club when the game knows who hit, otherwise
+-- the putter's low launch.
+local function puttedBy(playerState, launch)
+    local ok, club = pcall(function() return Golf.heldClub(playerState:GetPawn()) end)
+    if ok and club ~= nil then return Golf.isPutter(club) end
+    local flat = math.sqrt(launch.X * launch.X + launch.Y * launch.Y)
+    return flat > 0 and math.atan(launch.Z, flat) < PUTT_ELEVATION
+end
+
+-- Calls onHit(ball, putt) right after any club launches a ball; putt says whether it was a putter.
+-- The game applies each hit twice (the hitter's copy and the server's), so onHit can run twice.
+function Golf.onHit(onHit)
+    ExecuteInGameThread(function()
+        LoadAsset(BALL_CLASS)
+        RegisterHook(BALL_CLASS .. ":OnHitByGolfClub", function(context, component, launchForce, impactOffset, instigator)
+            local ball = context:get()
+            onHit(ball, puttedBy(unwrap(instigator), unwrap(launchForce)))
+        end)
+    end)
+end
+
 -- A hitTest for Trajectory.fly: line traces against the world, ignoring the golfer, club and ball.
 function Golf.hitTest(worldContext, ignore)
     local kismet = static("kismet", "/Script/Engine.Default__KismetSystemLibrary")

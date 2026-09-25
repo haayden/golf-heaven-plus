@@ -174,6 +174,78 @@ test("turn is the signed smallest difference between two yaws", function()
     near(Aim.turn(-170, 170), -20, "negative yaws")
 end)
 
+local Roll = require("roll")
+
+local function cross(a, b)
+    return point(a.Y * b.Z - a.Z * b.Y, a.Z * b.X - a.X * b.Z, a.X * b.Y - a.Y * b.X)
+end
+
+test("rolling spin leaves the contact point still", function()
+    for _, case in ipairs({
+        { point(100, 0, 0), point(0, 0, 1) },
+        { point(-37, 250, 0), point(0, 0, 1) },
+        { point(80, 20, 13), point(0, -0.2, 0.98) }, -- on a slope, already along the surface
+    }) do
+        local n = case[2]
+        local len = math.sqrt(n.X ^ 2 + n.Y ^ 2 + n.Z ^ 2)
+        n = point(n.X / len, n.Y / len, n.Z / len)
+        local v = Roll.alongSurface(case[1], n)
+        local spin = Roll.rollingSpin(v, n, 4.5)
+        local w = point(math.rad(spin.X), math.rad(spin.Y), math.rad(spin.Z))
+        local contact = cross(w, point(-n.X * 4.5, -n.Y * 4.5, -n.Z * 4.5))
+        near(v.X + contact.X, 0, "slip x", 1e-9)
+        near(v.Y + contact.Y, 0, "slip y", 1e-9)
+        near(v.Z + contact.Z, 0, "slip z", 1e-9)
+    end
+end)
+
+test("alongSurface splits off the part of the velocity into the ground", function()
+    local along, into = Roll.alongSurface(point(10, 0, -5), point(0, 0, 1))
+    near(along.X, 10, "x")
+    near(along.Z, 0, "z")
+    near(into, -5, "into")
+end)
+
+test("slowed takes resistance times time off the speed and never reverses", function()
+    local v = Roll.slowed(point(30, 40, 0), 0.1, 100)
+    near(v.X, 24, "x")
+    near(v.Y, 32, "y")
+    local stopped = Roll.slowed(point(3, 4, 0), 0.1, 100)
+    eq(stopped.X, 0, "stopped x")
+    eq(stopped.Y, 0, "stopped y")
+end)
+
+test("launch scale keeps a stroke's distance under the new resistance", function()
+    local s = Roll.launchScale(140, 323)
+    local v = 585
+    near((s * v) ^ 2 / (2 * 140), v ^ 2 / (2 * 323), "distance", 1e-6)
+end)
+
+local Cup = require("cup")
+
+test("capture speed is highest dead centre and zero at the rim", function()
+    near(Cup.captureSpeed(0, 11, 380), 380, "centre")
+    near(Cup.captureSpeed(11, 11, 380), 0, "rim")
+    near(Cup.captureSpeed(15, 11, 380), 0, "outside")
+    near(Cup.captureSpeed(6.6, 11, 380), 380 * 0.8, "chord 0.8")
+end)
+
+test("real-world check: the same rule gives a real cup's 1.63 m/s", function()
+    -- A ball drops if it falls its own radius while crossing the hole's width.
+    local realHole, realBall = 5.4, 2.13
+    local centre = 2 * realHole / math.sqrt(2 * realBall / 980)
+    near(centre, 163, "real capture speed", 2)
+end)
+
+test("closest approach catches a ball that jumped over the hole between frames", function()
+    local d, at = Cup.closestApproach(point(-20, 3, 0), point(20, 3, 0), point(0, 0, 0))
+    near(d, 3, "distance")
+    near(at.X, 0, "point x")
+    local far = Cup.closestApproach(point(-20, 3, 0), point(-15, 3, 0), point(0, 0, 0))
+    assert(far > 15, "stops at the segment end: " .. far)
+    near(Cup.closestApproach(point(2, 2, 0), point(2, 2, 0), point(0, 0, 0)), math.sqrt(8), "no movement")
+end)
+
 local Trajectory = require("trajectory")
 
 test("launchVelocity reproduces the game's launch for a recorded driver shot", function()
