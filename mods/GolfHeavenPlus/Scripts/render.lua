@@ -1,0 +1,116 @@
+-- Local-only marker meshes: a pool of dots laid along a path, plus a flat ring for a spot on the
+-- ground. Everything is spawned on this machine only (no replication, no collision, no shadows),
+-- so other players never see it and it can't touch the ball.
+local Render = {}
+Render.__index = Render
+
+local ACTOR_CLASS = "/Script/Engine.StaticMeshActor"
+local SPHERE = "/Engine/BasicShapes/Sphere.Sphere"
+local CYLINDER = "/Engine/BasicShapes/Cylinder.Cylinder"
+local MATERIAL = "/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"
+local MOVABLE = 2           -- EComponentMobility::Movable
+local NO_COLLISION = 0      -- ECollisionEnabled::NoCollision
+local BASIC_SHAPE_SIZE = 100 -- engine basic shapes are 100 units across
+
+local function valid(object) return object ~= nil and object:IsValid() end
+
+local function spawnMarker(world, mesh, color)
+    local actor = world:SpawnActor(StaticFindObject(ACTOR_CLASS), { X = 0, Y = 0, Z = -100000 }, { Pitch = 0, Yaw = 0, Roll = 0 })
+    if not valid(actor) then return nil end
+    actor:SetReplicates(false)
+    local component = actor.StaticMeshComponent
+    component:SetMobility(MOVABLE)
+    component:SetStaticMesh(mesh)
+    component:SetCollisionEnabled(NO_COLLISION)
+    component:SetCastShadow(false)
+    local material = component:CreateDynamicMaterialInstance(0, StaticFindObject(MATERIAL), FName("None"))
+    if valid(material) then material:SetVectorParameterValue(FName("Color"), color) end
+    actor:SetActorHiddenInGame(true)
+    return actor
+end
+
+local function place(actor, location, scale, rotation)
+    actor:K2_SetActorLocationAndRotation(location, rotation or { Pitch = 0, Yaw = 0, Roll = 0 }, false, {}, true)
+    actor:SetActorScale3D(scale)
+    actor:SetActorHiddenInGame(false)
+end
+
+-- Points spaced `spacing` apart along the polyline `path` (a list of {X, Y, Z}).
+function Render.resample(path, spacing)
+    local points = {}
+    if #path == 0 then return points end
+    points[1] = path[1]
+    local carried = 0
+    for i = 2, #path do
+        local a, b = path[i - 1], path[i]
+        local dx, dy, dz = b.X - a.X, b.Y - a.Y, b.Z - a.Z
+        local length = math.sqrt(dx * dx + dy * dy + dz * dz)
+        local travelled = spacing - carried
+        while travelled <= length do
+            local f = travelled / length
+            points[#points + 1] = { X = a.X + dx * f, Y = a.Y + dy * f, Z = a.Z + dz * f }
+            travelled = travelled + spacing
+        end
+        carried = length - (travelled - spacing)
+    end
+    return points
+end
+
+-- options: { dots = 60, dotColor = {R,G,B,A}, ringColor = {R,G,B,A} }
+function Render.new(world, options)
+    local self = setmetatable({ world = world, dots = {}, options = options }, Render)
+    local sphere = StaticFindObject(SPHERE)
+    for i = 1, options.dots do
+        local dot = spawnMarker(world, sphere, options.dotColor)
+        if dot == nil then break end
+        self.dots[i] = dot
+    end
+    self.ring = spawnMarker(world, StaticFindObject(CYLINDER), options.ringColor)
+    return self
+end
+
+function Render:isValid()
+    return valid(self.world) and self.dots[1] ~= nil and valid(self.dots[1])
+end
+
+-- Lays dots along `points`; each dot's size grows with distance from `viewer` so the arc stays
+-- readable far away. `sizeAt(distance)` returns a diameter in world units.
+function Render:showDots(points, viewer, sizeAt)
+    for i, dot in ipairs(self.dots) do
+        local point = points[i]
+        if point == nil then
+            dot:SetActorHiddenInGame(true)
+        else
+            local dx, dy, dz = point.X - viewer.X, point.Y - viewer.Y, point.Z - viewer.Z
+            local s = sizeAt(math.sqrt(dx * dx + dy * dy + dz * dz)) / BASIC_SHAPE_SIZE
+            place(dot, point, { X = s, Y = s, Z = s })
+        end
+    end
+end
+
+-- A thin disc of `diameter` lying on the surface at `location` facing `normal`.
+function Render:showRing(location, normal, diameter)
+    if not valid(self.ring) then return end
+    local math3d = StaticFindObject("/Script/Engine.Default__KismetMathLibrary")
+    local rotation = math3d:MakeRotFromZ(normal)
+    local s = diameter / BASIC_SHAPE_SIZE
+    local lifted = { X = location.X + normal.X * 2, Y = location.Y + normal.Y * 2, Z = location.Z + normal.Z * 2 }
+    place(self.ring, lifted, { X = s, Y = s, Z = 0.02 }, rotation)
+end
+
+function Render:hide()
+    for _, dot in ipairs(self.dots) do
+        if valid(dot) then dot:SetActorHiddenInGame(true) end
+    end
+    if valid(self.ring) then self.ring:SetActorHiddenInGame(true) end
+end
+
+function Render:destroy()
+    for _, dot in ipairs(self.dots) do
+        if valid(dot) then dot:K2_DestroyActor() end
+    end
+    if valid(self.ring) then self.ring:K2_DestroyActor() end
+    self.dots, self.ring = {}, nil
+end
+
+return Render

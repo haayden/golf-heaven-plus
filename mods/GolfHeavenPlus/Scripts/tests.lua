@@ -65,6 +65,38 @@ test("load of a missing file returns a copy of the defaults", function()
     eq(Config.load(TEMP_FILE).trajectory, Config.DEFAULTS.trajectory, "defaults untouched")
 end)
 
+local Render = require("render")
+
+local function near(actual, expected, what)
+    if math.abs(actual - expected) > 1e-6 then
+        error(string.format("%s: expected %s, got %s", what, tostring(expected), tostring(actual)), 2)
+    end
+end
+
+local function point(x, y, z) return { X = x, Y = y, Z = z } end
+
+test("resample spaces points evenly along a straight path", function()
+    local points = Render.resample({ point(0, 0, 0), point(10, 0, 0) }, 2)
+    eq(#points, 6, "count")
+    for i, p in ipairs(points) do near(p.X, (i - 1) * 2, "x" .. i) end
+end)
+
+test("resample keeps spacing across corners", function()
+    local points = Render.resample({ point(0, 0, 0), point(3, 0, 0), point(3, 3, 0) }, 2)
+    eq(#points, 4, "count")
+    near(points[2].X, 2, "p2.x")
+    near(points[3].X, 3, "p3.x")
+    near(points[3].Y, 1, "p3.y")
+    near(points[4].Y, 3, "p4.y")
+end)
+
+test("resample survives empty paths and repeated points", function()
+    eq(#Render.resample({}, 5), 0, "empty")
+    local points = Render.resample({ point(0, 0, 0), point(0, 0, 0), point(4, 0, 0) }, 2)
+    eq(#points, 3, "count")
+    near(points[3].X, 4, "last")
+end)
+
 local lines = { string.format("%d passed, %d failed", passed, #failures) }
 for _, failure in ipairs(failures) do lines[#lines + 1] = "  FAIL " .. failure end
 return table.concat(lines, "\n")
