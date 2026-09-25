@@ -66,7 +66,9 @@ local function tick()
     local turned = lastYaw and Aim.turn(lastYaw, yaw) or 0
     lastYaw = yaw
     local club = Golf.heldClub(pawn)
-    if club == nil then
+    -- Moving a golfer whose putter head rests against the ball knocks it: the game counts the
+    -- touch as a stroke. Leave putting alone until that can be done safely.
+    if club == nil or Golf.isPutter(club) then
         addressed = nil
         return
     end

@@ -39,8 +39,15 @@ local function valid(object) return object ~= nil and object:IsValid() end
 local function arcWidth(distance) return math.max(0.8, math.min(80, distance * 0.0045)) end
 local function groundWidth(distance) return math.max(0.8, math.min(70, distance * 0.004)) end
 
+-- Landing marker diameter: about a degree of view, so it never hides a nearby cup.
 local function ringSize(distance)
-    return math.max(60, math.min(400, distance * 0.02))
+    return math.max(10, math.min(400, distance * 0.02))
+end
+
+-- The marker lies on the ground; a landing against a wall or the cup's side would stand it on edge.
+local function flatNormal(normal)
+    if normal.Z < 0.7 then return UP end
+    return normal
 end
 
 -- The arc's shadow on the terrain: the line a golfer sees leaving the ball while looking down at it.
@@ -116,15 +123,17 @@ local function update()
     draw:showLine("arc", arc, camera, arcWidth)
     local peak = shot.start.Z
     for _, p in ipairs(flight.points) do peak = math.max(peak, p.Z) end
-    if peak - shot.start.Z > LOW_SHOT then
+    -- Putts only hop before rolling, so neither the ground line nor a landing spot means anything.
+    local lofted = peak - shot.start.Z > LOW_SHOT
+    if lofted then
         draw:showLine("ground", groundTrack(arc, hitTest), camera, groundWidth, onGround)
     else
         draw:hideLine("ground")
     end
-    if flight.landing then
+    if lofted and flight.landing then
         local l = flight.landing.location
         local distance = math.sqrt((l.X - camera.X) ^ 2 + (l.Y - camera.Y) ^ 2 + (l.Z - camera.Z) ^ 2)
-        draw:showRing(l, flight.landing.normal, ringSize(distance))
+        draw:showRing(l, flatNormal(flight.landing.normal), ringSize(distance))
     else
         draw:hideRing()
     end

@@ -9,6 +9,7 @@ local SHOT_YAW_OFFSET = -90      -- golfers stand side-on: the ball leaves 90 de
 local LAUNCH_LIFT = 4            -- the club launches from about 4 cm above the ball's origin
 local ADDRESS_REACH = 200        -- recorded hits all had the ball under 120 cm from the golfer; further can't be hit
 local TRACE_VISIBILITY = 0       -- ETraceTypeQuery::TraceTypeQuery1 (Visibility)
+local DRAG_FOLLOW_THROUGH = 2    -- ERGGolfStrokeType: the putter's swing, a physical head dragged through the ball
 
 local cache = {}
 
@@ -51,6 +52,11 @@ function Golf.shotYaw(pawn, controller)
     local stance = controller:GetControlRotation().Yaw
     if not pawn.bUseControllerRotationYaw then stance = pawn:K2_GetActorRotation().Yaw end
     return stance + SHOT_YAW_OFFSET
+end
+
+-- Putters hit with a physical head resting just behind the ball: any touch counts as a stroke.
+function Golf.isPutter(club)
+    return club.GolfStrokeType == DRAG_FOLLOW_THROUGH
 end
 
 -- A golf ball at rest within the player's reach.

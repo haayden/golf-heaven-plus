@@ -9,6 +9,7 @@
 --   probe                -> status of the golf shot recorder (dev/golf-shots.jsonl)
 
 local GolfProbe = require("golfprobe")
+local PuttWatch = require("puttwatch")
 
 local SCRIPT_DIR = debug.getinfo(1, "S").source:match("^@(.*)[/\\]")
 local MODS_DIR = SCRIPT_DIR .. "/../.."
@@ -122,6 +123,8 @@ ExecuteInGameThread(function()
         GolfProbe.status = "failed: " .. tostring(err)
         print("[GolfProbe] " .. GolfProbe.status .. "\n")
     end
+    local okWatch, errWatch = pcall(PuttWatch.start, DEV_DIR)
+    if not okWatch then print("[PuttWatch] failed: " .. tostring(errWatch) .. "\n") end
 end)
 
 print("[GHPDev] listening on " .. CMD_FILE .. "\n")
