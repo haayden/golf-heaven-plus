@@ -6,6 +6,9 @@
 --   console <command>    -> runs a UE console command as the local player
 --   lua <code>           -> runs Lua in this mod's state; print() and return values are captured
 --   test                 -> runs mods/GolfHeavenPlus/Scripts/tests.lua with fresh module copies
+--   probe                -> status of the golf shot recorder (dev/golf-shots.jsonl)
+
+local GolfProbe = require("golfprobe")
 
 local SCRIPT_DIR = debug.getinfo(1, "S").source:match("^@(.*)[/\\]")
 local MODS_DIR = SCRIPT_DIR .. "/../.."
@@ -91,6 +94,7 @@ local function dispatch(command)
     if verb == "console" then return runConsole(rest) end
     if verb == "lua" then return runLua(rest) end
     if verb == "test" then return runTests() end
+    if verb == "probe" then return string.format("%s, %d shots", GolfProbe.status, GolfProbe.shots) end
     return "ERROR unknown command: " .. tostring(verb)
 end
 
@@ -110,6 +114,14 @@ LoopInGameThreadWithDelay(250, function()
     local ok, result = pcall(dispatch, command)
     if not ok then result = "ERROR " .. tostring(result) end
     writeFile(OUT_FILE, id .. "\n" .. tostring(result) .. "\n")
+end)
+
+ExecuteInGameThread(function()
+    local ok, err = pcall(GolfProbe.start, DEV_DIR)
+    if not ok then
+        GolfProbe.status = "failed: " .. tostring(err)
+        print("[GolfProbe] " .. GolfProbe.status .. "\n")
+    end
 end)
 
 print("[GHPDev] listening on " .. CMD_FILE .. "\n")
