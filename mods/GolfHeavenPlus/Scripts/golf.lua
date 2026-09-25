@@ -43,6 +43,15 @@ function Golf.heldClub(pawn)
     return held
 end
 
+-- World yaw the shot will fly along: 90 degrees from the stance. Holding right-click to look
+-- around (the club's free look) stops the body following the camera, so the body's facing is
+-- the stance then; otherwise the aim is the control rotation, which the recorded shots match exactly.
+function Golf.shotYaw(pawn, controller)
+    local stance = controller:GetControlRotation().Yaw
+    if not pawn.bUseControllerRotationYaw then stance = pawn:K2_GetActorRotation().Yaw end
+    return stance + SHOT_YAW_OFFSET
+end
+
 -- The ball this club is lined up on, if the player is standing at it and it isn't already flying.
 function Golf.addressedBall(club, pawn)
     local ball = club.ActorToHit
@@ -60,7 +69,10 @@ function Golf.power(club)
     local stroke = swing.ActiveStroke
     local swinging = valid(stroke) and stroke:IsStrokeActive()
     if not swinging then return 1, false end
+    -- Some swing types count as active from the moment the ball is addressed, with the meter
+    -- still at zero: treat that as lining up and show the full-power shot.
     local meter = swing.ReplicatedCurrentPower
+    if meter == nil or meter <= 0.001 then return 1, false end
     return swing:ApplyPowerCurve(meter), true
 end
 
@@ -76,7 +88,7 @@ function Golf.shot(club, ball, pawn)
     if ok and type(worldGravity) == "number" and worldGravity ~= 0 then gravity = worldGravity end
     return {
         start = { X = location.X, Y = location.Y, Z = location.Z + LAUNCH_LIFT },
-        yaw = pawn:GetControlRotation().Yaw + SHOT_YAW_OFFSET,
+        yaw = Golf.shotYaw(pawn, pawn.Controller),
         distance = club.MaxDistance * club.DirectionalMultiplier * power * lie,
         arc = club["Arc Param"],
         gravityZ = gravity,

@@ -59,17 +59,24 @@ function Render.resample(path, spacing)
     return points
 end
 
--- options: { dots = 60, dotColor = {R,G,B,A}, ringColor = {R,G,B,A} }
+-- options: { dots = 60, dotColor = {R,G,B,A}, groundDots = 60, groundColor = {R,G,B,A}, ringColor = {R,G,B,A} }
 function Render.new(world, options)
-    local self = setmetatable({ world = world, dots = {}, options = options, hidden = {} }, Render)
+    local self = setmetatable({ world = world, dots = {}, ground = {}, options = options, hidden = {} }, Render)
     local sphere = StaticFindObject(SPHERE)
     for i = 1, options.dots do
         local dot = spawnMarker(world, sphere, options.dotColor)
         if dot == nil then break end
         self.dots[i] = dot
     end
-    self.ring = spawnMarker(world, StaticFindObject(CYLINDER), options.ringColor)
+    local disc = StaticFindObject(CYLINDER)
+    for i = 1, options.groundDots or 0 do
+        local dot = spawnMarker(world, disc, options.groundColor)
+        if dot == nil then break end
+        self.ground[i] = dot
+    end
+    self.ring = spawnMarker(world, disc, options.ringColor)
     for _, dot in ipairs(self.dots) do self.hidden[dot] = true end
+    for _, dot in ipairs(self.ground) do self.hidden[dot] = true end
     if self.ring then self.hidden[self.ring] = true end
     return self
 end
@@ -110,19 +117,71 @@ function Render:hideRing()
     if valid(self.ring) then setHidden(self, self.ring, true) end
 end
 
+-- Flat discs lying on the ground at `spots` ({ location, normal } each), sized like showDots.
+function Render:showGround(spots, viewer, sizeAt)
+    local math3d = StaticFindObject("/Script/Engine.Default__KismetMathLibrary")
+    for i, disc in ipairs(self.ground) do
+        local spot = spots[i]
+        if spot == nil then
+            setHidden(self, disc, true)
+        else
+            local l, n = spot.location, spot.normal
+            local dx, dy, dz = l.X - viewer.X, l.Y - viewer.Y, l.Z - viewer.Z
+            local s = sizeAt(math.sqrt(dx * dx + dy * dy + dz * dz)) / BASIC_SHAPE_SIZE
+            local lifted = { X = l.X + n.X, Y = l.Y + n.Y, Z = l.Z + n.Z }
+            disc:K2_SetActorLocationAndRotation(lifted, math3d:MakeRotFromZ(n), false, {}, true)
+            disc:SetActorScale3D({ X = s, Y = s, Z = 0.01 })
+            setHidden(self, disc, false)
+        end
+    end
+end
+
 function Render:hide()
     for _, dot in ipairs(self.dots) do
         if valid(dot) then setHidden(self, dot, true) end
     end
+    for _, disc in ipairs(self.ground) do
+        if valid(disc) then setHidden(self, disc, true) end
+    end
     self:hideRing()
 end
 
+-- UE4SS has no unload callback, so a hot reload leaves the previous copy's markers in the world.
+-- Ours are the only StaticMeshActors showing an engine basic shape through a dynamic instance of
+-- BasicShapeMaterial; destroy those. Returns how many were removed.
+function Render.removeStale()
+    local shapes = {}
+    for _, path in ipairs({ SPHERE, CYLINDER }) do
+        local mesh = StaticFindObject(path)
+        if valid(mesh) then shapes[mesh:GetAddress()] = true end
+    end
+    local material = StaticFindObject(MATERIAL)
+    if not valid(material) then return 0 end
+    local removed = 0
+    for _, actor in ipairs(FindAllOf("StaticMeshActor") or {}) do
+        local ok, ours = pcall(function()
+            local component = actor.StaticMeshComponent
+            if not shapes[component.StaticMesh:GetAddress()] then return false end
+            local instance = component:GetMaterial(0)
+            return valid(instance) and valid(instance.Parent) and instance.Parent:GetAddress() == material:GetAddress()
+                and instance:GetClass():GetFName():ToString() == "MaterialInstanceDynamic"
+        end)
+        if ok and ours then
+            actor:K2_DestroyActor()
+            removed = removed + 1
+        end
+    end
+    return removed
+end
+
 function Render:destroy()
-    for _, dot in ipairs(self.dots) do
-        if valid(dot) then dot:K2_DestroyActor() end
+    for _, list in ipairs({ self.dots, self.ground }) do
+        for _, actor in ipairs(list) do
+            if valid(actor) then actor:K2_DestroyActor() end
+        end
     end
     if valid(self.ring) then self.ring:K2_DestroyActor() end
-    self.dots, self.ring = {}, nil
+    self.dots, self.ground, self.ring = {}, {}, nil
 end
 
 return Render
