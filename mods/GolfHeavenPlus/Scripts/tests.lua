@@ -67,8 +67,8 @@ end)
 
 local Render = require("render")
 
-local function near(actual, expected, what)
-    if math.abs(actual - expected) > 1e-6 then
+local function near(actual, expected, what, tolerance)
+    if math.abs(actual - expected) > (tolerance or 1e-6) then
         error(string.format("%s: expected %s, got %s", what, tostring(expected), tostring(actual)), 2)
     end
 end
@@ -95,6 +95,47 @@ test("resample survives empty paths and repeated points", function()
     local points = Render.resample({ point(0, 0, 0), point(0, 0, 0), point(4, 0, 0) }, 2)
     eq(#points, 3, "count")
     near(points[3].X, 4, "last")
+end)
+
+local Trajectory = require("trajectory")
+
+test("launchVelocity reproduces the game's launch for a recorded driver shot", function()
+    -- Shot logged in Golf Heaven: SetNewTrajectory(start, end, 0.7) -> LaunchForce
+    local v = Trajectory.launchVelocity(point(-22252.48, 34456.4, 2296.488), point(-18705.59, 37294.81, 2296.488), 0.7, -980)
+    near(v.X, 1779.395, "x", 0.05)
+    near(v.Y, 1423.966, "y", 0.05)
+    near(v.Z, 976.7224, "z", 0.05)
+end)
+
+test("launchVelocity has no answer for zero distance", function()
+    eq(Trajectory.launchVelocity(point(1, 2, 3), point(1, 2, 3), 0.5, -980), nil, "velocity")
+end)
+
+test("target points along the shot yaw at the given distance", function()
+    local t = Trajectory.target(point(100, 200, 50), 90, 1000)
+    near(t.X, 100, "x")
+    near(t.Y, 1200, "y")
+    near(t.Z, 50, "z")
+end)
+
+test("an undamped flight on flat ground lands on the target", function()
+    local start, target = point(0, 0, 0), point(4000, 0, 0)
+    local v = Trajectory.launchVelocity(start, target, 0.5, -980)
+    local ground = function(from, to)
+        if to.Z > 0 then return nil end
+        local f = from.Z / (from.Z - to.Z)
+        return { location = point(from.X + (to.X - from.X) * f, from.Y + (to.Y - from.Y) * f, 0), normal = point(0, 0, 1) }
+    end
+    local flight = Trajectory.fly(start, v, { gravityZ = -980, damping = 0, step = 1 / 30, maxTime = 20, hitTest = ground })
+    assert(flight.landing ~= nil, "no landing")
+    near(flight.landing.location.X, 4000, "landing x", 1)
+end)
+
+test("damping shortens the flight slightly", function()
+    local v = { X = 2000, Y = 0, Z = 1000 }
+    local plain = Trajectory.positionAt(point(0, 0, 0), v, -980, 0, 2)
+    local damped = Trajectory.positionAt(point(0, 0, 0), v, -980, 0.01, 2)
+    assert(damped.X < plain.X and damped.X > plain.X * 0.98, "damped x " .. damped.X)
 end)
 
 local lines = { string.format("%d passed, %d failed", passed, #failures) }

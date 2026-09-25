@@ -1,6 +1,7 @@
 -- Golf Heaven Plus: entry point. Loads settings and starts each feature.
 local Config = require("config")
 local Menu = require("menu")
+local Preview = require("preview")
 
 local MOD_DIR = debug.getinfo(1, "S").source:match("^@(.*)[/\\]Scripts[/\\]")
 local CONFIG_PATH = MOD_DIR .. "/config.txt"
@@ -19,5 +20,7 @@ Menu.install({
         if not ok then print("[GolfHeavenPlus] could not save config.txt: " .. tostring(err) .. "\n") end
     end,
 })
+
+Preview.start(function() return settings.trajectory end)
 
 print("[GolfHeavenPlus] loaded\n")

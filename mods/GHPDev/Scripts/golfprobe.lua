@@ -73,19 +73,50 @@ local function unwrap(param)
     return param
 end
 
+local function field(value, name)
+    local ok, result = pcall(function() return value[name] end)
+    if ok and type(result) == "number" then return result end
+    return nil
+end
+
 -- Turns vectors, 2D vectors, rotators, objects and plain values into JSON-friendly data.
 local function plain(value)
     local kind = type(value)
     if kind == "number" or kind == "boolean" or kind == "string" or kind == "nil" then return value end
-    local ok, result = pcall(function()
-        if value.Z ~= nil and value.X ~= nil then return { value.X, value.Y, value.Z } end
-        if value.X ~= nil and value.Y ~= nil then return { value.X, value.Y } end
-        if value.Pitch ~= nil then return { pitch = value.Pitch, yaw = value.Yaw, roll = value.Roll } end
-        if value.IsValid ~= nil and value:IsValid() and value.GetFName ~= nil then return value:GetFName():ToString() end
-        return tostring(value)
-    end)
-    if ok then return result end
+    local x, y, z = field(value, "X"), field(value, "Y"), field(value, "Z")
+    if x and y and z then return { x, y, z } end
+    if x and y then return { x, y } end
+    local pitch = field(value, "Pitch")
+    if pitch then return { pitch = pitch, yaw = field(value, "Yaw"), roll = field(value, "Roll") } end
+    local ok, name = pcall(function() return value:GetFName():ToString() end)
+    if ok then return name end
+    local okTag, tag = pcall(function() return value.TagName:ToString() end)
+    if okTag then return tag end
     return tostring(value)
+end
+
+local function clubSnapshot(club)
+    local state = {}
+    for _, name in ipairs(CLUB_STATE) do
+        local ok, value = pcall(function() return club[name] end)
+        if ok then state[name] = plain(value) end
+    end
+    pcall(function()
+        local swing = club.RGGolfSwing
+        state.replicatedPower = swing.ReplicatedCurrentPower
+        state.curvedReplicatedPower = swing:ApplyPowerCurve(swing.ReplicatedCurrentPower)
+        state.strokeActive = swing.ActiveStroke:IsStrokeActive()
+    end)
+    local ok, player = pcall(function() return club.Player end)
+    if ok and valid(player) then
+        state.controlRotation = plain(player:GetControlRotation())
+        local okCam, camera = pcall(function() return player.Controller.PlayerCameraManager end)
+        if okCam and valid(camera) then
+            state.cameraLocation = plain(camera:GetCameraLocation())
+            state.cameraRotation = plain(camera:GetCameraRotation())
+        end
+    end
+    return state
 end
 
 local function now(context)
@@ -140,17 +171,23 @@ local function hookClubFunction(name)
         local args = {}
         for i = 1, select("#", ...) do args[i] = plain(unwrap((select(i, ...)))) end
         record.calls[#record.calls + 1] = { fn = name, t = now(club), args = args }
-        if name == "CalculateLandLocation" then
-            local state = {}
-            for _, field in ipairs(CLUB_STATE) do
-                local ok, value = pcall(function() return club[field] end)
-                if ok then state[field] = plain(value) end
-            end
+        if name == "SetNewTrajectory" then
             record.club = club:GetClass():GetFName():ToString()
-            record.clubState = state
-            local ok, player = pcall(function() return club.Player end)
-            if ok and valid(player) then
-                record.aim = plain(player:GetControlRotation())
+            record.clubState = clubSnapshot(club)
+            -- Ask the club's own landing-spot function for comparison with the End it just used.
+            local ball = club.CurrentHitActor
+            if valid(ball) then
+                local location = ball:K2_GetActorLocation()
+                local asked = {}
+                for _, withMultipliers in ipairs({ true, false }) do
+                    local out = {}
+                    local ok, err = pcall(function() club:CalculateLandLocation(location, withMultipliers, out) end)
+                    asked[#asked + 1] = { with = withMultipliers, ok = ok, result = ok and plain(out) or tostring(err), raw = ok and plain(out.EndPosition) or nil }
+                end
+                record.askedLandLocation = asked
+                local carry = {}
+                pcall(function() club:CalculateClubCarryDistance(carry) end)
+                record.askedCarry = plain(carry.ClubCarryDistanceInMeters) or plain(carry)
             end
         end
     end)
@@ -175,9 +212,22 @@ function Probe.start(devDir)
         if not ok then print("[GolfProbe] could not hook " .. name .. ": " .. tostring(err) .. "\n") end
     end
 
+    -- Live power while swinging: the last values before the hit go into the shot record.
+    local lastPower = {}
+    RegisterHook(SWING .. ":HandlePowerUpdated", function(context, power)
+        local swing = context:get()
+        local value = unwrap(power)
+        lastPower.power = { value = value, curved = swing:ApplyPowerCurve(value), replicated = swing.ReplicatedCurrentPower, t = now(swing) }
+    end)
+    RegisterHook(SWING .. ":HandleDragUpdated", function(context, current, maxRegistered, precision)
+        local swing = context:get()
+        lastPower.drag = { current = unwrap(current), max = unwrap(maxRegistered), precision = unwrap(precision), replicated = swing.ReplicatedCurrentPower, t = now(swing) }
+    end)
+
     RegisterHook(BALL .. ":OnHitByGolfClub", function(context, component, launchForce, impactOffset, instigator, localHit, spin, clubTag)
         local ball = context:get()
         local record = shot or newShot(ball)
+        record.lastPower, lastPower = lastPower, {}
         local mesh = ball.StaticMesh
         local location = ball:K2_GetActorLocation()
         record.hit = {

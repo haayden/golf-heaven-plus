@@ -29,10 +29,13 @@ local function spawnMarker(world, mesh, color)
     return actor
 end
 
-local function place(actor, location, scale, rotation)
-    actor:K2_SetActorLocationAndRotation(location, rotation or { Pitch = 0, Yaw = 0, Roll = 0 }, false, {}, true)
-    actor:SetActorScale3D(scale)
-    actor:SetActorHiddenInGame(false)
+local IDENTITY = { X = 0, Y = 0, Z = 0, W = 1 }
+
+-- Hidden state is tracked in Lua so each frame only touches markers whose visibility changed.
+local function setHidden(self, actor, hidden)
+    if self.hidden[actor] == hidden then return end
+    self.hidden[actor] = hidden
+    actor:SetActorHiddenInGame(hidden)
 end
 
 -- Points spaced `spacing` apart along the polyline `path` (a list of {X, Y, Z}).
@@ -58,7 +61,7 @@ end
 
 -- options: { dots = 60, dotColor = {R,G,B,A}, ringColor = {R,G,B,A} }
 function Render.new(world, options)
-    local self = setmetatable({ world = world, dots = {}, options = options }, Render)
+    local self = setmetatable({ world = world, dots = {}, options = options, hidden = {} }, Render)
     local sphere = StaticFindObject(SPHERE)
     for i = 1, options.dots do
         local dot = spawnMarker(world, sphere, options.dotColor)
@@ -66,6 +69,8 @@ function Render.new(world, options)
         self.dots[i] = dot
     end
     self.ring = spawnMarker(world, StaticFindObject(CYLINDER), options.ringColor)
+    for _, dot in ipairs(self.dots) do self.hidden[dot] = true end
+    if self.ring then self.hidden[self.ring] = true end
     return self
 end
 
@@ -79,11 +84,12 @@ function Render:showDots(points, viewer, sizeAt)
     for i, dot in ipairs(self.dots) do
         local point = points[i]
         if point == nil then
-            dot:SetActorHiddenInGame(true)
+            setHidden(self, dot, true)
         else
             local dx, dy, dz = point.X - viewer.X, point.Y - viewer.Y, point.Z - viewer.Z
             local s = sizeAt(math.sqrt(dx * dx + dy * dy + dz * dz)) / BASIC_SHAPE_SIZE
-            place(dot, point, { X = s, Y = s, Z = s })
+            dot:K2_SetActorTransform({ Rotation = IDENTITY, Translation = point, Scale3D = { X = s, Y = s, Z = s } }, false, {}, true)
+            setHidden(self, dot, false)
         end
     end
 end
@@ -95,14 +101,20 @@ function Render:showRing(location, normal, diameter)
     local rotation = math3d:MakeRotFromZ(normal)
     local s = diameter / BASIC_SHAPE_SIZE
     local lifted = { X = location.X + normal.X * 2, Y = location.Y + normal.Y * 2, Z = location.Z + normal.Z * 2 }
-    place(self.ring, lifted, { X = s, Y = s, Z = 0.02 }, rotation)
+    self.ring:K2_SetActorLocationAndRotation(lifted, rotation, false, {}, true)
+    self.ring:SetActorScale3D({ X = s, Y = s, Z = 0.02 })
+    setHidden(self, self.ring, false)
+end
+
+function Render:hideRing()
+    if valid(self.ring) then setHidden(self, self.ring, true) end
 end
 
 function Render:hide()
     for _, dot in ipairs(self.dots) do
-        if valid(dot) then dot:SetActorHiddenInGame(true) end
+        if valid(dot) then setHidden(self, dot, true) end
     end
-    if valid(self.ring) then self.ring:SetActorHiddenInGame(true) end
+    self:hideRing()
 end
 
 function Render:destroy()
