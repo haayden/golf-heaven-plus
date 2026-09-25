@@ -4,6 +4,7 @@ local Config = {}
 Config.DEFAULTS = {
     trajectory = true,
     tracer = true,
+    aim = true,
 }
 
 local BOOLEANS = {

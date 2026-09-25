@@ -2,6 +2,7 @@
 local Config = require("config")
 local Menu = require("menu")
 local Preview = require("preview")
+local Aim = require("aim")
 
 local MOD_DIR = debug.getinfo(1, "S").source:match("^@(.*)[/\\]Scripts[/\\]")
 local CONFIG_PATH = MOD_DIR .. "/config.txt"
@@ -11,6 +12,7 @@ local settings = Config.load(CONFIG_PATH)
 Menu.install({
     options = {
         { key = "trajectory", label = "Trajectory" },
+        { key = "aim", label = "Aim Assist" },
         { key = "tracer", label = "Shot Tracer" },
     },
     get = function(key) return settings[key] end,
@@ -22,5 +24,6 @@ Menu.install({
 })
 
 Preview.start(function() return settings.trajectory end)
+Aim.start(function() return settings.aim end)
 
 print("[GolfHeavenPlus] loaded\n")

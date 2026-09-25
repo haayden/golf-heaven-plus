@@ -97,6 +97,83 @@ test("resample survives empty paths and repeated points", function()
     near(points[3].X, 4, "last")
 end)
 
+local function distance(a, b) return math.sqrt((a.X - b.X) ^ 2 + (a.Y - b.Y) ^ 2 + (a.Z - b.Z) ^ 2) end
+
+test("adaptive resample is dense near the viewer and sparse far away", function()
+    local viewer = point(0, 0, 100)
+    local points = Render.resampleAdaptive({ point(0, 0, 0), point(20000, 0, 0) }, viewer, 0.1, 2, 200)
+    near(points[1].X, 0, "starts at the path start")
+    near(points[#points].X, 20000, "ends at the path end")
+    -- The final step is whatever is left to reach the end, so compare the full steps before it.
+    local first, late = points[2].X - points[1].X, points[#points - 1].X - points[#points - 2].X
+    assert(first < 15, "first step " .. first)
+    assert(late > 1000, "late step " .. late)
+    for i = 2, #points - 2 do
+        local step = distance(points[i], points[i + 1])
+        local expected = math.max(2, 0.1 * distance(points[i], viewer))
+        near(step, expected, "step " .. i, 1e-6)
+    end
+end)
+
+test("adaptive resample widens its steps to stay under the point budget", function()
+    local points = Render.resampleAdaptive({ point(0, 0, 0), point(20000, 0, 0) }, point(0, 0, 100), 0.01, 1, 30)
+    assert(#points <= 30, "count " .. #points)
+    near(points[#points].X, 20000, "still reaches the end")
+end)
+
+test("adaptive resample follows corners and survives short paths", function()
+    local points = Render.resampleAdaptive({ point(0, 0, 0), point(10, 0, 0), point(10, 10, 0) }, point(0, 0, 0), 0, 3, 100)
+    for _, p in ipairs(points) do assert(p.Y < 1e-9 or math.abs(p.X - 10) < 1e-9, "off path") end
+    near(points[#points].Y, 10, "end")
+    eq(#Render.resampleAdaptive({}, point(0, 0, 0), 0.1, 1, 10), 0, "empty")
+    eq(#Render.resampleAdaptive({ point(1, 1, 1) }, point(0, 0, 0), 0.1, 1, 10), 1, "single")
+end)
+
+-- Rotates v by the quaternion q the way FQuat::RotateVector does.
+local function rotate(q, v)
+    local tx, ty, tz = 2 * (q.Y * v.Z - q.Z * v.Y), 2 * (q.Z * v.X - q.X * v.Z), 2 * (q.X * v.Y - q.Y * v.X)
+    return point(v.X + q.W * tx + (q.Y * tz - q.Z * ty), v.Y + q.W * ty + (q.Z * tx - q.X * tz), v.Z + q.W * tz + (q.X * ty - q.Y * tx))
+end
+
+test("segment transform lays the cylinder's axis from a to b", function()
+    for _, case in ipairs({
+        { point(0, 0, 0), point(0, 0, 50) }, { point(0, 0, 0), point(30, 0, 0) },
+        { point(5, -3, 2), point(-7, 11, -4) }, { point(0, 0, 10), point(0, 0, -10) },
+    }) do
+        local a, b = case[1], case[2]
+        local t = Render.segmentTransform(a, b, 4)
+        local axis = rotate(t.Rotation, point(0, 0, 1))
+        local length = distance(a, b)
+        near(axis.X, (b.X - a.X) / length, "axis x", 1e-9)
+        near(axis.Y, (b.Y - a.Y) / length, "axis y", 1e-9)
+        near(axis.Z, (b.Z - a.Z) / length, "axis z", 1e-9)
+        near(t.Translation.X, (a.X + b.X) / 2, "mid x")
+        near(t.Scale3D.X, 0.04, "width")
+        near(t.Scale3D.Z, (length + 4) / 100, "length overlaps the joints")
+    end
+    eq(Render.segmentTransform(point(1, 1, 1), point(1, 1, 1), 4), nil, "zero length")
+end)
+
+local Aim = require("aim")
+
+test("orbit keeps the ball at the same spot relative to the golfer", function()
+    local ball, golfer = point(100, 200, 0), point(100, 140, 88)
+    local moved = Aim.orbit(golfer, ball, 90)
+    near(moved.X, 160, "x")
+    near(moved.Y, 200, "y")
+    near(moved.Z, 88, "height unchanged")
+    local back = Aim.orbit(moved, ball, -90)
+    near(back.X, golfer.X, "round trip x")
+    near(back.Y, golfer.Y, "round trip y")
+end)
+
+test("turn is the signed smallest difference between two yaws", function()
+    near(Aim.turn(10, 30), 20, "plain")
+    near(Aim.turn(350, 10), 20, "across 360")
+    near(Aim.turn(10, 350), -20, "backwards across 360")
+    near(Aim.turn(-170, 170), -20, "negative yaws")
+end)
+
 local Trajectory = require("trajectory")
 
 test("launchVelocity reproduces the game's launch for a recorded driver shot", function()

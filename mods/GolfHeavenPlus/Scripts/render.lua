@@ -1,11 +1,11 @@
--- Local-only marker meshes: a pool of dots laid along a path, plus a flat ring for a spot on the
--- ground. Everything is spawned on this machine only (no replication, no collision, no shadows),
--- so other players never see it and it can't touch the ball.
+-- Local-only marker meshes: pools of thin tubes that draw polylines, plus a flat ring for a spot
+-- on the ground. Everything is spawned on this machine only (no replication, no collision, no
+-- shadows), so other players never see it and it can't touch the ball.
 local Render = {}
 Render.__index = Render
 
 local ACTOR_CLASS = "/Script/Engine.StaticMeshActor"
-local SPHERE = "/Engine/BasicShapes/Sphere.Sphere"
+local SPHERE = "/Engine/BasicShapes/Sphere.Sphere" -- only used by older versions; still cleaned up
 local CYLINDER = "/Engine/BasicShapes/Cylinder.Cylinder"
 local MATERIAL = "/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"
 local MOVABLE = 2           -- EComponentMobility::Movable
@@ -29,13 +29,26 @@ local function spawnMarker(world, mesh, color)
     return actor
 end
 
-local IDENTITY = { X = 0, Y = 0, Z = 0, W = 1 }
+local function spawnPool(world, mesh, count, color)
+    local pool = {}
+    for i = 1, count do
+        local actor = spawnMarker(world, mesh, color)
+        if actor == nil then break end
+        pool[i] = actor
+    end
+    return pool
+end
 
 -- Hidden state is tracked in Lua so each frame only touches markers whose visibility changed.
 local function setHidden(self, actor, hidden)
     if self.hidden[actor] == hidden then return end
     self.hidden[actor] = hidden
     actor:SetActorHiddenInGame(hidden)
+end
+
+local function distance(a, b)
+    local dx, dy, dz = a.X - b.X, a.Y - b.Y, a.Z - b.Z
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
 -- Points spaced `spacing` apart along the polyline `path` (a list of {X, Y, Z}).
@@ -59,45 +72,115 @@ function Render.resample(path, spacing)
     return points
 end
 
--- options: { dots = 60, dotColor = {R,G,B,A}, groundDots = 60, groundColor = {R,G,B,A}, ringColor = {R,G,B,A} }
+local function walkAdaptive(path, viewer, fraction, minStep, limit)
+    local points = { path[1] }
+    local from, i = path[1], 2
+    local want = math.max(minStep, fraction * distance(from, viewer))
+    while i <= #path do
+        local to = path[i]
+        local length = distance(from, to)
+        if length >= want and length > 0 then
+            local f = want / length
+            from = { X = from.X + (to.X - from.X) * f, Y = from.Y + (to.Y - from.Y) * f, Z = from.Z + (to.Z - from.Z) * f }
+            points[#points + 1] = from
+            if #points > limit then return nil end
+            want = math.max(minStep, fraction * distance(from, viewer))
+        else
+            want = want - length
+            from = to
+            i = i + 1
+        end
+    end
+    local last = path[#path]
+    if distance(points[#points], last) > 1e-6 then points[#points + 1] = last end
+    if #points > limit then return nil end
+    return points
+end
+
+-- Points along `path` whose spacing grows with distance from `viewer` (`fraction` of it, at least
+-- `minStep`), so a line drawn through them is equally smooth up close and far away. Starts and
+-- ends on the path's ends. Never returns more than `maxPoints`: it spaces them wider instead.
+function Render.resampleAdaptive(path, viewer, fraction, minStep, maxPoints)
+    if #path <= 1 then return { path[1] } end
+    minStep = math.max(minStep, 1e-3)
+    for _ = 1, 16 do
+        local points = walkAdaptive(path, viewer, fraction, minStep, maxPoints)
+        if points then return points end
+        fraction, minStep = math.max(fraction * 1.5, 0.01), minStep * 1.5
+    end
+    return { path[1], path[#path] }
+end
+
+-- Transform that stretches the engine cylinder (100 units tall along Z) from `a` to `b` as a tube
+-- `width` thick. Each end overlaps by half a width so bends in a polyline show no gaps.
+function Render.segmentTransform(a, b, width)
+    local dx, dy, dz = b.X - a.X, b.Y - a.Y, b.Z - a.Z
+    local length = math.sqrt(dx * dx + dy * dy + dz * dz)
+    if length < 1e-6 then return nil end
+    dx, dy, dz = dx / length, dy / length, dz / length
+    -- Shortest rotation from +Z to the segment direction.
+    local qx, qy, qw = -dy, dx, 1 + dz
+    local norm = math.sqrt(qx * qx + qy * qy + qw * qw)
+    local rotation
+    if norm < 1e-9 then
+        rotation = { X = 1, Y = 0, Z = 0, W = 0 } -- straight down: half a turn about X
+    else
+        rotation = { X = qx / norm, Y = qy / norm, Z = 0, W = qw / norm }
+    end
+    local s = width / BASIC_SHAPE_SIZE
+    return {
+        Rotation = rotation,
+        Translation = { X = (a.X + b.X) / 2, Y = (a.Y + b.Y) / 2, Z = (a.Z + b.Z) / 2 },
+        Scale3D = { X = s, Y = s, Z = (length + width) / BASIC_SHAPE_SIZE },
+    }
+end
+
+-- options: { lines = { name = { segments = N, color = {R,G,B,A} }, ... }, ringColor = {R,G,B,A} }
 function Render.new(world, options)
-    local self = setmetatable({ world = world, dots = {}, ground = {}, options = options, hidden = {} }, Render)
-    local sphere = StaticFindObject(SPHERE)
-    for i = 1, options.dots do
-        local dot = spawnMarker(world, sphere, options.dotColor)
-        if dot == nil then break end
-        self.dots[i] = dot
+    local self = setmetatable({ world = world, lines = {}, hidden = {} }, Render)
+    local cylinder = StaticFindObject(CYLINDER)
+    for name, line in pairs(options.lines) do
+        self.lines[name] = spawnPool(world, cylinder, line.segments, line.color)
+        for _, actor in ipairs(self.lines[name]) do self.hidden[actor] = true end
     end
-    local disc = StaticFindObject(CYLINDER)
-    for i = 1, options.groundDots or 0 do
-        local dot = spawnMarker(world, disc, options.groundColor)
-        if dot == nil then break end
-        self.ground[i] = dot
-    end
-    self.ring = spawnMarker(world, disc, options.ringColor)
-    for _, dot in ipairs(self.dots) do self.hidden[dot] = true end
-    for _, dot in ipairs(self.ground) do self.hidden[dot] = true end
+    self.ring = spawnMarker(world, cylinder, options.ringColor)
     if self.ring then self.hidden[self.ring] = true end
     return self
 end
 
 function Render:isValid()
-    return valid(self.world) and self.dots[1] ~= nil and valid(self.dots[1])
+    if not valid(self.world) then return false end
+    for _, pool in pairs(self.lines) do
+        if pool[1] == nil or not valid(pool[1]) then return false end
+    end
+    return true
 end
 
--- Lays dots along `points`; each dot's size grows with distance from `viewer` so the arc stays
--- readable far away. `sizeAt(distance)` returns a diameter in world units.
-function Render:showDots(points, viewer, sizeAt)
-    for i, dot in ipairs(self.dots) do
-        local point = points[i]
-        if point == nil then
-            setHidden(self, dot, true)
-        else
-            local dx, dy, dz = point.X - viewer.X, point.Y - viewer.Y, point.Z - viewer.Z
-            local s = sizeAt(math.sqrt(dx * dx + dy * dy + dz * dz)) / BASIC_SHAPE_SIZE
-            dot:K2_SetActorTransform({ Rotation = IDENTITY, Translation = point, Scale3D = { X = s, Y = s, Z = s } }, false, {}, true)
-            setHidden(self, dot, false)
+-- Draws the polyline `points` with the named line's tubes; `widthAt(distance)` gives the tube's
+-- thickness at a distance from `viewer`, so the line keeps a steady on-screen weight.
+-- `lift(point, width)` optionally moves each point (e.g. up off the ground by the tube's radius).
+function Render:showLine(name, points, viewer, widthAt, lift)
+    local pool = self.lines[name]
+    for i, actor in ipairs(pool) do
+        local a, b = points[i], points[i + 1]
+        local transform = nil
+        if a ~= nil and b ~= nil then
+            local width = widthAt(distance({ X = (a.X + b.X) / 2, Y = (a.Y + b.Y) / 2, Z = (a.Z + b.Z) / 2 }, viewer))
+            if lift then a, b = lift(a, width), lift(b, width) end
+            transform = Render.segmentTransform(a, b, width)
         end
+        if transform == nil then
+            setHidden(self, actor, true)
+        else
+            actor:K2_SetActorTransform(transform, false, {}, true)
+            setHidden(self, actor, false)
+        end
+    end
+end
+
+function Render:hideLine(name)
+    for _, actor in ipairs(self.lines[name]) do
+        if valid(actor) then setHidden(self, actor, true) end
     end
 end
 
@@ -117,32 +200,8 @@ function Render:hideRing()
     if valid(self.ring) then setHidden(self, self.ring, true) end
 end
 
--- Flat discs lying on the ground at `spots` ({ location, normal } each), sized like showDots.
-function Render:showGround(spots, viewer, sizeAt)
-    local math3d = StaticFindObject("/Script/Engine.Default__KismetMathLibrary")
-    for i, disc in ipairs(self.ground) do
-        local spot = spots[i]
-        if spot == nil then
-            setHidden(self, disc, true)
-        else
-            local l, n = spot.location, spot.normal
-            local dx, dy, dz = l.X - viewer.X, l.Y - viewer.Y, l.Z - viewer.Z
-            local s = sizeAt(math.sqrt(dx * dx + dy * dy + dz * dz)) / BASIC_SHAPE_SIZE
-            local lifted = { X = l.X + n.X, Y = l.Y + n.Y, Z = l.Z + n.Z }
-            disc:K2_SetActorLocationAndRotation(lifted, math3d:MakeRotFromZ(n), false, {}, true)
-            disc:SetActorScale3D({ X = s, Y = s, Z = 0.01 })
-            setHidden(self, disc, false)
-        end
-    end
-end
-
 function Render:hide()
-    for _, dot in ipairs(self.dots) do
-        if valid(dot) then setHidden(self, dot, true) end
-    end
-    for _, disc in ipairs(self.ground) do
-        if valid(disc) then setHidden(self, disc, true) end
-    end
+    for name in pairs(self.lines) do self:hideLine(name) end
     self:hideRing()
 end
 
@@ -175,13 +234,13 @@ function Render.removeStale()
 end
 
 function Render:destroy()
-    for _, list in ipairs({ self.dots, self.ground }) do
-        for _, actor in ipairs(list) do
+    for _, pool in pairs(self.lines) do
+        for _, actor in ipairs(pool) do
             if valid(actor) then actor:K2_DestroyActor() end
         end
     end
     if valid(self.ring) then self.ring:K2_DestroyActor() end
-    self.dots, self.ground, self.ring = {}, {}, nil
+    self.lines, self.ring = {}, nil
 end
 
 return Render
