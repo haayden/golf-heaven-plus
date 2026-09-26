@@ -26,9 +26,14 @@ function Putt.launchSpeed(distance)
 end
 
 -- Runtime -----------------------------------------------------------------------------------------
+local REPLACE_FRAMES = 10 -- how long after a putt to watch for the game's launch to land
+local FLAT_BOOST = 1.067  -- the fit includes the game's hop, which carried ~15% of the distance
+                          -- friction-free; a flat launch needs 1.15^(1/2.147) more speed
+
 local enabled = function() return true end
 local stroke = { live = false, depth = 0 } -- the local player's current putt
 local last = nil                           -- distance in cm of the local player's last putt
+local pending = {}                         -- ball address -> launch waiting to replace the game's
 local NONE = nil
 
 local function valid(object) return object ~= nil and object:IsValid() end
@@ -43,9 +48,35 @@ local function localPutter()
     return club
 end
 
+-- The game gives a putted ball its launch a frame after the hit; when it lands, swap in ours: the
+-- backswing's speed along the same line, flat along the green (the game's 6 degree hop makes balls
+-- float over holes). If the game applies its launch again, it gets replaced again.
+local function replaceLaunches()
+    for key, p in pairs(pending) do
+        p.frames = p.frames + 1
+        if not valid(p.ball) or p.frames > REPLACE_FRAMES then
+            pending[key] = nil
+        else
+            local mesh = p.ball.StaticMesh
+            local v = mesh:GetPhysicsLinearVelocity(NONE)
+            local speed = math.sqrt(v.X ^ 2 + v.Y ^ 2 + v.Z ^ 2)
+            local ours = p.speed * FLAT_BOOST
+            local games = math.abs(speed - p.gameSpeed) < 0.1 * p.gameSpeed
+            local already = p.replaced and math.abs(speed - ours) < 0.1 * ours
+            local flat = math.sqrt(v.X ^ 2 + v.Y ^ 2)
+            if speed > 1 and games and not already and flat > 1e-3 then
+                local k = ours / flat
+                mesh:SetPhysicsLinearVelocity({ X = v.X * k, Y = v.Y * k, Z = 0 }, false, NONE)
+                p.replaced = true
+            end
+        end
+    end
+end
+
 -- Follows the local player's putter: a stroke starts when the head goes live and its depth is the
 -- furthest the putter has been drawn back since.
 function Putt.update()
+    replaceLaunches()
     local putter = localPutter()
     local live = putter ~= nil and Golf.headLive(putter)
     if live and not stroke.live then stroke.depth = 0 end
@@ -76,20 +107,21 @@ local function onTouch(head, ball)
     log("putt: ignored the putter touching the ball before any backswing")
 end
 
-local function onHit(ball, putt, hitter)
+local function onHit(ball, putt, hitter, launch)
     if not putt or not enabled() or not ball:HasAuthority() or not Golf.isLocal(hitter) then return end
     local putter = localPutter()
     if putter == nil then return end
-    local distance = Putt.distance(currentDepth(putter))
+    local depth = currentDepth(putter)
+    local distance = Putt.distance(depth)
     local speed = Putt.launchSpeed(distance)
-    local mesh = ball.StaticMesh
-    local launch = mesh:GetPhysicsLinearVelocity(NONE)
-    local length = math.sqrt(launch.X ^ 2 + launch.Y ^ 2 + launch.Z ^ 2)
-    if length < 1 or speed <= 0 then return end
-    -- Keep the game's aim and hop angle; only the speed comes from the backswing.
-    local k = speed / length
-    mesh:SetPhysicsLinearVelocity({ X = launch.X * k, Y = launch.Y * k, Z = launch.Z * k }, false, NONE)
-    if last ~= distance then log(string.format("putt: backswing %.0f%% -> %.1f m", currentDepth(putter) * 100, distance / 100)) end
+    local gameSpeed = math.sqrt(launch.X ^ 2 + launch.Y ^ 2 + launch.Z ^ 2)
+    if speed <= 0 or gameSpeed < 1 then return end
+    local key = ball:GetAddress()
+    if pending[key] == nil then
+        log(string.format("putt: backswing %.0f%% -> %.1f m (game would have launched %.0f cm/s, now %.0f)",
+            depth * 100, distance / 100, gameSpeed, speed))
+    end
+    pending[key] = { ball = ball, speed = speed, gameSpeed = gameSpeed, frames = 0 }
     last = distance
 end
 

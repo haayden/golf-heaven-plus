@@ -7,3 +7,6 @@ mods/GolfHeavenPlus/config.txt
 # Build output
 dist/
 *.log
+
+# Speaker tools downloaded locally (mpv + yt-dlp), too big for git
+mods/GolfHeavenPlus/tools/mpv/

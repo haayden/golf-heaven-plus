@@ -10,9 +10,12 @@ local Loop = require("loop")
 local Cup = {}
 
 local HOLE_RADIUS = 11     -- cm: the cup's damping zone; 2.5 ball radii, the same ratio as a real cup
-local CAPTURE_SPEED = 380  -- cm/s: a ball crossing dead centre slower than this drops
+local CAPTURE_SPEED = 600  -- cm/s: a ball crossing dead centre slower than this drops. Game putts
+                           -- travel ~2.5x real speeds, so real-golf limits (~380 here) let balls
+                           -- skip that would drop in real life; only a hard hit gets over now
 local BALL_RADIUS = 4.44
-local RIM_BAND = 4         -- cm above resting height that still counts as rolling on the rim
+local RIM_BAND = 10        -- cm above resting height still counted as crossing the hole: putts
+                           -- leave the face in a small hop and would otherwise float over it
 local DROP_SPEED = 40      -- cm/s a captured ball keeps, pointed at the middle of the cup and down
 local STILL_FRAMES = 30
 local MAX_SECONDS = 30

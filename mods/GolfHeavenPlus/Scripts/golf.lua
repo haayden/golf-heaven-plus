@@ -180,17 +180,19 @@ local function notify(listeners, ...)
     end
 end
 
--- Calls onHit(ball, putt, hitter) right after any club launches a ball: putt says whether it was
--- a putter, hitter is the hitting player's state. The game applies each hit twice (the hitter's
--- copy and the server's), so onHit can run twice for one stroke.
+-- Calls onHit(ball, putt, hitter, launch) right after any club hits a ball: putt says whether it
+-- was a putter, hitter is the hitting player's state and launch the velocity the game will give
+-- the ball. The ball only takes that velocity a frame later, so it is still at rest during onHit.
+-- The game applies each hit twice (the hitter's copy and the server's), so onHit can run twice.
 function Golf.onHit(onHit)
     hitListeners[#hitListeners + 1] = onHit
     if #hitListeners > 1 then return end
     ExecuteInGameThread(function()
         LoadAsset(BALL_CLASS)
         RegisterHook(BALL_CLASS .. ":OnHitByGolfClub", function(context, component, launchForce, impactOffset, instigator)
-            local hitter = unwrap(instigator)
-            notify(hitListeners, context:get(), puttedBy(hitter, unwrap(launchForce)), hitter)
+            local hitter, launch = unwrap(instigator), unwrap(launchForce)
+            notify(hitListeners, context:get(), puttedBy(hitter, launch), hitter,
+                { X = launch.X, Y = launch.Y, Z = launch.Z })
         end)
     end)
 end
