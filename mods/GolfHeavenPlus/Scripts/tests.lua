@@ -274,6 +274,17 @@ test("readout formats distances and power the way the club panel does", function
     eq(Readout.percent(1), "100%", "full")
 end)
 
+local Cart = require("cart")
+
+test("cart push fades out towards the top speed and needs the throttle", function()
+    near(Cart.push(0, 1, 2200, 450), 450, "standstill")
+    near(Cart.push(1100, 1, 2200, 450), 225, "half way")
+    near(Cart.push(1100, 0.5, 2200, 450), 112.5, "half throttle")
+    eq(Cart.push(2200, 1, 2200, 450), 0, "at top speed")
+    eq(Cart.push(500, 0, 2200, 450), 0, "no throttle")
+    eq(Cart.push(-300, 1, 2200, 450), 0, "rolling backwards")
+end)
+
 local Trajectory = require("trajectory")
 
 test("launchVelocity reproduces the game's launch for a recorded driver shot", function()

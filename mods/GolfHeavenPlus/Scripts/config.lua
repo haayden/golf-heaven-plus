@@ -6,6 +6,7 @@ Config.DEFAULTS = {
     tracer = true,
     aim = true,
     putting = true,
+    cart = true,
 }
 
 local BOOLEANS = {

@@ -7,6 +7,8 @@ local Aim = require("aim")
 local Cup = require("cup")
 local Putt = require("putt")
 local Readout = require("readout")
+local Cart = require("cart")
+local Scorecard = require("scorecard")
 
 local MOD_DIR = debug.getinfo(1, "S").source:match("^@(.*)[/\\]Scripts[/\\]")
 local CONFIG_PATH = MOD_DIR .. "/config.txt"
@@ -20,6 +22,7 @@ Menu.install({
         { key = "trajectory", label = "Trajectory" },
         { key = "aim", label = "Aim Assist" },
         { key = "putting", label = "Real Putting" },
+        { key = "cart", label = "Fast Cart" },
         { key = "tracer", label = "Shot Tracer" },
     },
     get = function(key) return settings[key] end,
@@ -42,5 +45,7 @@ start("aim assist", function() Aim.start(function() return settings.aim end) end
 start("cup capture", function() Cup.start(putting) end)
 start("backswing putting", function() Putt.start(putting) end)
 start("power readout", function() Readout.start(putting) end)
+start("fast cart", function() Cart.start(function() return settings.cart end) end)
+start("scorecard cleanup", function() Scorecard.start() end)
 
 print("[GolfHeavenPlus] loaded\n")
