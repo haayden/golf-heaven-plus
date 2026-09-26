@@ -348,6 +348,36 @@ test("damping shortens the flight slightly", function()
     assert(damped.X < plain.X and damped.X > plain.X * 0.98, "damped x " .. damped.X)
 end)
 
+local Ace = require("ace")
+
+test("hole-in-one pops a grounded ball out of cover, higher each time", function()
+    local cup = point(14700, 0, 0)
+    local first, how = Ace.steer(point(0, 0, -300), point(0, 0, 0), cup, true, false, 0)
+    eq(how, "pop", "launch")
+    local third = Ace.steer(point(0, 0, -300), point(0, 0, 0), cup, true, false, 2)
+    assert(third.Z > first.Z and first.X > 0, "pops " .. first.Z .. " then " .. third.Z)
+end)
+
+test("hole-in-one rolls in on the green and chips in from further out", function()
+    local roll, rollHow = Ace.steer(point(0, 0, 0), point(0, 0, 0), point(1000, 0, 20), true, true, 0)
+    eq(rollHow, nil, "roll launch")
+    near(roll.X, 809, "roll speed", 1)
+    local chip, chipHow = Ace.steer(point(0, 0, 0), point(0, 0, 0), point(14700, 0, 0), true, true, 0)
+    eq(chipHow, "chip", "chip launch")
+    assert(chip.Z > 0 and chip.X > 0, "a chip goes up and towards the cup")
+end)
+
+test("hole-in-one leaves a ball in the air alone behind cover or below the cup", function()
+    local cup = point(14700, 0, 0)
+    eq(Ace.steer(point(0, 0, 200), point(200, 0, 1200), cup, false, false, 1), nil, "behind cover")
+    eq(Ace.steer(point(0, 0, -300), point(500, 0, -800), cup, false, true, 0), nil, "below the cup, falling")
+end)
+
+test("hole-in-one caps how hard the air re-aims", function()
+    local v = Ace.steer(point(0, 0, 50), point(0, 0, 100), point(100000, 0, 0), false, true, 0)
+    assert(v ~= nil and math.abs(v.X) <= 8000, "re-aim " .. tostring(v and v.X))
+end)
+
 local lines = { string.format("%d passed, %d failed", passed, #failures) }
 for _, failure in ipairs(failures) do lines[#lines + 1] = "  FAIL " .. failure end
 return table.concat(lines, "\n")
