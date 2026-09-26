@@ -124,33 +124,6 @@ function Golf.headLive(club)
     return ok and mode ~= 0
 end
 
--- The ball the golf round has registered for a player, or nil.
-function Golf.playerBall(playerState)
-    local manager = cache.golfManager
-    if not valid(manager) then
-        manager = nil
-        for _, candidate in ipairs(FindAllOf("RGGolfGameManager") or {}) do
-            if candidate:IsValid() and not candidate:GetFName():ToString():find("^Default__") then manager = candidate end
-        end
-        cache.golfManager = manager
-    end
-    if manager == nil then return nil end
-    local ball = manager:GetGolfBall(playerState)
-    if valid(ball) then return ball end
-    return nil
-end
-
--- Makes a putter's head strike `ball` as if it were moving at `speed` cm/s along `yaw`, through the
--- game's own hit path (PutBall), so the stroke counts and the round carries on as usual.
-function Golf.strikeWithPutter(club, ball, yaw, speed)
-    local head = club.ClubHeadCollisionProxy
-    if not valid(head) then return false end
-    head.ActorToHit = ball
-    local r = math.rad(yaw)
-    head:PutBall({ X = math.cos(r) * speed, Y = math.sin(r) * speed, Z = 0 }, club)
-    return true
-end
-
 -- Whether a player state belongs to the local player.
 function Golf.isLocal(playerState)
     local controller = Golf.localController()

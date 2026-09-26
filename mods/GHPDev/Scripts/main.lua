@@ -127,14 +127,21 @@ LoopInGameThreadWithDelay(250, function()
     writeFile(OUT_FILE, id .. "\n" .. tostring(result) .. "\n")
 end)
 
-ExecuteInGameThread(function()
-    local ok, err = pcall(GolfProbe.start, DEV_DIR)
-    if not ok then
-        GolfProbe.status = "failed: " .. tostring(err)
-        print("[GolfProbe] " .. GolfProbe.status .. "\n")
-    end
-    local okWatch, errWatch = pcall(PuttWatch.start, DEV_DIR)
-    if not okWatch then print("[PuttWatch] failed: " .. tostring(errWatch) .. "\n") end
-end)
+-- The shot and putter recorders hook the game's golf functions (PutBall, OnHitByGolfClub, the ball's
+-- every bounce) and sample every frame. A PutBall called from Lua crashed the game inside PuttWatch's
+-- hook, so they stay off while Hayden plays; switch on only for a recording session.
+local RECORDERS = false
+
+if RECORDERS then
+    ExecuteInGameThread(function()
+        local ok, err = pcall(GolfProbe.start, DEV_DIR)
+        if not ok then
+            GolfProbe.status = "failed: " .. tostring(err)
+            print("[GolfProbe] " .. GolfProbe.status .. "\n")
+        end
+        local okWatch, errWatch = pcall(PuttWatch.start, DEV_DIR)
+        if not okWatch then print("[PuttWatch] failed: " .. tostring(errWatch) .. "\n") end
+    end)
+end
 
 print("[GHPDev] listening on " .. CMD_FILE .. "\n")
