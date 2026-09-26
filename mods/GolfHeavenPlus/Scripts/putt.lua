@@ -27,12 +27,15 @@ function Putt.launchSpeed(distance)
 end
 
 -- Runtime -----------------------------------------------------------------------------------------
+local AUTO_MIN_BACKSWING = 0.03 -- auto-putt only after a real backswing
+local AUTO_TRIGGER = 0.08       -- forward movement from the deepest point that fires the putt
+local AUTO_HEAD_SPEED = 400     -- cm/s given to the game's hit; the launch is replaced anyway
 local REPLACE_FRAMES = 10 -- how long after a putt to watch for the game's launch to land
 local FLAT_BOOST = 1.067  -- the fit includes the game's hop, which carried ~15% of the distance
                           -- friction-free; a flat launch needs 1.15^(1/2.147) more speed
 
 local enabled = function() return true end
-local stroke = { live = false, depth = 0 } -- the local player's current putt
+local stroke = { live = false, depth = 0, fired = false } -- the local player's current putt
 local last = nil                           -- distance in cm of the local player's last putt
 local pending = {}                         -- ball address -> launch waiting to replace the game's
 local NONE = nil
@@ -74,15 +77,29 @@ local function replaceLaunches()
     end
 end
 
+-- Auto-putt: once the putter has been drawn back, the first push forward strikes the ball, so a soft
+-- follow-through that would stop short of the ball still putts. The backswing sets the distance.
+local function autoPutt(putter, drag)
+    if stroke.fired or stroke.depth < AUTO_MIN_BACKSWING or drag + stroke.depth < AUTO_TRIGGER then return end
+    local controller = Golf.localController()
+    local ball = Golf.playerBall(controller.PlayerState)
+    if ball == nil or ball.GolfBallInFlight then return end
+    stroke.fired = true
+    Golf.strikeWithPutter(putter, ball, Golf.shotYaw(controller.Pawn, controller), AUTO_HEAD_SPEED)
+end
+
 -- Follows the local player's putter: a stroke starts when the head goes live and its depth is the
 -- furthest the putter has been drawn back since.
 function Putt.update()
     replaceLaunches()
     local putter = localPutter()
     local live = putter ~= nil and Golf.headLive(putter)
-    if live and not stroke.live then stroke.depth = 0 end
+    if live and not stroke.live then stroke.depth, stroke.fired = 0, false end
     stroke.live = live
-    if live then stroke.depth = math.max(stroke.depth, -Golf.puttDrag(putter)) end
+    if not live then return end
+    local drag = Golf.puttDrag(putter)
+    stroke.depth = math.max(stroke.depth, -drag)
+    autoPutt(putter, drag)
 end
 
 -- Backswing depth (0-1) that asks for `distance` cm: the inverse of Putt.distance.
@@ -112,6 +129,11 @@ local function onTouch(head, ball)
     local putter = localPutter()
     if putter == nil or not valid(putter.ClubHeadCollisionProxy) then return end
     if putter.ClubHeadCollisionProxy:GetAddress() ~= head:GetAddress() then return end
+    if stroke.fired then
+        -- Auto-putt already struck: the head catching up with the ball isn't a second stroke.
+        head.PendingHit = nil
+        return
+    end
     if currentDepth(putter) >= NO_BACKSWING then return end
     -- The click dropped the head onto the ball (or it crept there): cancel before it launches.
     head.PendingHit = nil
@@ -119,7 +141,9 @@ local function onTouch(head, ball)
 end
 
 local function onHit(ball, putt, hitter, launch)
-    if not putt or not enabled() or not ball:HasAuthority() or not Golf.isLocal(hitter) then return end
+    if not putt or not enabled() or not Golf.isLocal(hitter) then return end
+    stroke.fired = true -- struck, by the player or by auto-putt: nothing more this stroke
+    if not ball:HasAuthority() then return end
     local putter = localPutter()
     if putter == nil then return end
     local depth = currentDepth(putter)
