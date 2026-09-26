@@ -90,6 +90,9 @@ local function autoPutt(putter, drag)
     if not valid(controller.PlayerState) then return end
     local ball = Golf.playerBall(controller.PlayerState)
     if ball == nil then return end -- no round (the driving range): putt by hand
+    -- Only the host's game can give the putt the backswing's distance; a guest's auto-putt would be
+    -- a weak push at the head's early speed.
+    if not ball:HasAuthority() then return end
     if not Golf.queuePutterHit(putter, ball, controller.Pawn) then
         log("auto-putt: your ball isn't at rest within reach")
         return
