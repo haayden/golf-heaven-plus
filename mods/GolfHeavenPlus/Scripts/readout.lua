@@ -10,6 +10,7 @@ local FRAMES_PER_UPDATE = 3
 
 local lastShot = {} -- club class name -> { meter, carry } of the local player's last full swing
 local live = nil    -- the local player's swing in progress: { class, meter, carry }
+local tag = function() return nil end -- extra word shown after the power, or nil
 
 local function valid(object) return object ~= nil and object:IsValid() end
 
@@ -57,6 +58,8 @@ function Readout.update()
     if not valid(hud) or not valid(hud.WG_GolfClubInfo) then return end
     local label, value = lines(club)
     if label == nil then return end
+    local extra = tag()
+    if extra ~= nil then label = label .. "  " .. extra end
     setText(hud.WG_GolfClubInfo.SwingTypeText, label)
     setText(hud.WG_GolfClubInfo.CurrentClubMaxDistance, value)
 end
@@ -68,7 +71,9 @@ local function onHit(ball, putt, hitter)
     live = nil
 end
 
-function Readout.start()
+-- extraTag: function returning a word to show after the power (or nil for none).
+function Readout.start(extraTag)
+    tag = extraTag or tag
     Golf.onHit(onHit)
     Loop.every(FRAMES_PER_UPDATE, "readout", Readout.update)
 end

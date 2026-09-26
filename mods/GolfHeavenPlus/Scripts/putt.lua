@@ -33,8 +33,12 @@ local FLAT_BOOST = 1.067  -- the fit includes the game's hop, which carried ~15%
 local AUTO_MIN_BACKSWING = 0.03 -- auto-putt only after a real backswing
 local AUTO_TRIGGER = 0.08       -- forward movement from the deepest point that putts
 local AUTO_WAIT_FRAMES = 30     -- frames to wait for the game to strike a handed-over ball
+local DRAG_GAP = 3              -- seconds without a drag report that start another player's next stroke
 
 local enabled = function() return true end
+local aceOn = function() return false end  -- hole-in-one mode steers the local player's balls itself
+local reported = {}                         -- player state address -> { depth, at }: other players'
+                                            -- backswings, as their games report them to the host
 -- The local player's current putt: how deep the backswing went, whether auto-putt has tried, frames
 -- since it handed the ball to the head (nil if it hasn't), and whether the ball has been struck.
 local stroke = { live = false, depth = 0, tried = false, waiting = nil, hit = false }
@@ -56,13 +60,14 @@ end
 
 -- The game gives a putted ball its launch a frame after the hit; when it lands, swap in ours: the
 -- backswing's speed along the same line, flat along the green (the game's 6 degree hop makes balls
--- float over holes). If the game applies its launch again, it gets replaced again.
+-- float over holes). If the game applies its launch again, it gets replaced again. Only the machine
+-- simulating the ball can change it (the host, in a hosted round); elsewhere the entry just expires.
 local function replaceLaunches()
     for key, p in pairs(pending) do
         p.frames = p.frames + 1
         if not valid(p.ball) or p.frames > REPLACE_FRAMES then
             pending[key] = nil
-        else
+        elseif Golf.simulatesHere(p.ball) then
             local mesh = p.ball.StaticMesh
             local v = mesh:GetPhysicsLinearVelocity(NONE)
             local speed = math.sqrt(v.X ^ 2 + v.Y ^ 2 + v.Z ^ 2)
@@ -90,9 +95,6 @@ local function autoPutt(putter, drag)
     if not valid(controller.PlayerState) then return end
     local ball = Golf.playerBall(controller.PlayerState)
     if ball == nil then return end -- no round (the driving range): putt by hand
-    -- Only the host's game can give the putt the backswing's distance; a guest's auto-putt would be
-    -- a weak push at the head's early speed.
-    if not ball:HasAuthority() then return end
     if not Golf.queuePutterHit(putter, ball, controller.Pawn) then
         log("auto-putt: your ball isn't at rest within reach")
         return
@@ -159,32 +161,72 @@ local function onTouch(head, ball)
     log("putt: ignored the putter touching the ball before any backswing")
 end
 
-local function onHit(ball, putt, hitter, launch)
-    if not putt or not enabled() or not Golf.isLocal(hitter) then return end
-    stroke.hit = true -- struck, by the head or by auto-putt: nothing more this stroke
-    if not ball:HasAuthority() then return end
-    local putter = localPutter()
-    if putter == nil then return end
-    local depth = currentDepth(putter)
+local function playerName(playerState)
+    local ok, name = pcall(function() return playerState:GetPlayerName():ToString() end)
+    return ok and name or "?"
+end
+
+-- Queues the launch a putt with a backswing of `depth` should get, to replace the game's when it
+-- lands. Returns the putt's distance, or nil if there's nothing to replace.
+local function queueLaunch(ball, depth, launch, who)
     local distance = Putt.distance(depth)
     local speed = Putt.launchSpeed(distance)
     local gameSpeed = math.sqrt(launch.X ^ 2 + launch.Y ^ 2 + launch.Z ^ 2)
-    if speed <= 0 or gameSpeed < 1 then return end
+    if speed <= 0 or gameSpeed < 1 then return nil end
     local key = ball:GetAddress()
     if pending[key] == nil then
-        log(string.format("putt: backswing %.0f%% -> %.1f m (game would have launched %.0f cm/s, now %.0f)",
-            depth * 100, distance / 100, gameSpeed, speed))
+        log(string.format("putt%s: backswing %.0f%% -> %.1f m (game would have launched %.0f cm/s, now %.0f)",
+            who, depth * 100, distance / 100, gameSpeed, speed))
     end
     pending[key] = { ball = ball, speed = speed, gameSpeed = gameSpeed, frames = 0 }
-    last = distance
+    return distance
 end
 
--- isEnabled: function returning whether the real putting setting is on.
-function Putt.start(isEnabled)
+local function onHit(ball, putt, hitter, launch)
+    if not putt or not enabled() or not valid(hitter) then return end
+    if Golf.isLocal(hitter) then
+        stroke.hit = true -- struck, by the head or by auto-putt: nothing more this stroke
+        local putter = localPutter()
+        if putter == nil then return end
+        local depth = currentDepth(putter)
+        if aceOn() then
+            last = Putt.distance(depth)
+            return
+        end
+        last = queueLaunch(ball, depth, launch, "") or last
+        return
+    end
+    -- Another player's putt: on the host, their game has been reporting their backswing here.
+    local key = hitter:GetAddress()
+    local drag = reported[key]
+    reported[key] = nil
+    if drag == nil or drag.depth <= 0 then return end
+    queueLaunch(ball, drag.depth, launch, " (" .. playerName(hitter) .. ")")
+end
+
+-- Another player's drag meter, reported by their game to the host: remember how far back they drew.
+local function onDrag(playerState, power)
+    if type(power) ~= "number" or Golf.isLocal(playerState) then return end
+    local key = playerState:GetAddress()
+    local now = os.time()
+    local drag = reported[key]
+    if drag == nil or now - drag.at >= DRAG_GAP then
+        drag = { depth = 0 }
+        reported[key] = drag
+    end
+    drag.at = now
+    if power < 0 then drag.depth = math.max(drag.depth, -power) end
+end
+
+-- isEnabled: function returning whether the real putting setting is on. isAceOn: function
+-- returning whether hole-in-one mode is steering the local player's balls instead.
+function Putt.start(isEnabled, isAceOn)
     enabled = isEnabled
+    aceOn = isAceOn or aceOn
     NONE = FName("None")
     Golf.onHit(onHit)
     Golf.onHeadTouch(onTouch)
+    Golf.onSwingDrag(onDrag)
     Loop.every(1, "putt", Putt.update)
 end
 

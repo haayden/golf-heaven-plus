@@ -6,7 +6,7 @@ A mod for **RV There Yet?** that makes the Golf Heaven course nicer to play. It 
 
 RV There Yet? is an Unreal Engine game, so this mod runs on [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS), not MelonLoader, which only works with Unity games. UE4SS is included in the download.
 
-1. Download **GolfHeavenPlus-v1.0.0.zip** from [Releases](https://github.com/haayden/golf-heaven-plus/releases/latest).
+1. Download the **GolfHeavenPlus** zip from the [latest release](https://github.com/haayden/golf-heaven-plus/releases/latest).
 2. In Steam, right-click **RV There Yet?** and choose **Manage** → **Browse local files**.
 3. Open `Ride\Binaries\Win64`. It's the folder that holds `Ride-Win64-Shipping.exe`.
 4. Extract the zip into that folder. You should now have `dwmapi.dll` and a `ue4ss` folder next to the game's exe.
@@ -25,14 +25,14 @@ To uninstall, delete `dwmapi.dll` and the `ue4ss` folder from `Ride\Binaries\Win
   - Putts roll flat instead of hopping.
   - A ball rolling across the hole drops in unless it's going too fast.
 - **Power readout**: the club panel shows your live swing power and carry distance, plus the last shot's numbers.
-- **Fast golf cart**: tops out around 60 km/h instead of 40.
+- **Fast golf cart**: tops out around 60 km/h instead of 40. Hold **Left Shift** while driving for turbo, up to about 125 km/h.
 - **Scorecard cleanup**: a player who leaves and rejoins no longer shows up on the scorecard more than once.
 
 ## Multiplayer
 
-Everyone in the lobby can install it. Each player gets their own trajectory preview, aim assist, gauge and power readout on their own screen. The fast cart works for whoever is driving.
+Everyone in the lobby should install the same version. Each player gets their own trajectory preview, aim assist, gauge and power readout on their own screen. The fast cart and turbo work for whoever is driving.
 
-The host's game runs the ball physics. So the host's copy is what makes putts roll flat and the cup catch balls, and it does that for every player's ball. The backswing distance and auto-putt only apply to the host's own putts for now. Guests putt with the game's normal feel.
+The host's game runs the ball physics, and every player's game reports their putter backswing to the host. So the host's copy applies everyone's backswing distance, flat roll and cup catching. If the host doesn't have the mod, guests putt with the game's normal feel.
 
 ## Notes
 

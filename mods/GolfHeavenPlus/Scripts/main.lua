@@ -10,6 +10,7 @@ local Readout = require("readout")
 local Cart = require("cart")
 local Scorecard = require("scorecard")
 local Gauge = require("gauge")
+local Ace = require("ace")
 
 local MOD_DIR = debug.getinfo(1, "S").source:match("^@(.*)[/\\]Scripts[/\\]")
 local CONFIG_PATH = MOD_DIR .. "/config.txt"
@@ -41,12 +42,14 @@ local function start(name, run)
 end
 
 local function putting() return settings.putting end
+local function aceTag() return Ace.isOn() and "ACE" or nil end
 start("trajectory", function() Preview.start(function() return settings.trajectory end) end)
 start("aim assist", function() Aim.start(function() return settings.aim end) end)
+start("hole-in-one mode", function() Ace.start(Key.F6) end)
 start("cup capture", function() Cup.start(putting) end)
-start("backswing putting", function() Putt.start(putting) end)
-start("power readout", function() Readout.start() end)
-start("putt gauge", function() Gauge.start(putting) end)
+start("backswing putting", function() Putt.start(putting, Ace.isOn) end)
+start("power readout", function() Readout.start(aceTag) end)
+start("putt gauge", function() Gauge.start(putting, function() return aceTag() or "PUTT" end) end)
 start("fast cart", function() Cart.start(function() return settings.cart end) end)
 start("scorecard cleanup", function() Scorecard.start() end)
 

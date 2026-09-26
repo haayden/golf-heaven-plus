@@ -124,24 +124,48 @@ function Golf.headLive(club)
     return ok and mode ~= 0
 end
 
--- The ball the golf round has registered for a player, or nil (always nil on the driving range).
+-- The golf round's manager, or nil (there is none on the driving range).
 local MANAGER_SEARCH_EVERY = 10 -- seconds: FindAllOf is slow, and the range has no manager to find
 
-function Golf.playerBall(playerState)
+function Golf.manager()
     local manager = cache.golfManager
-    if not valid(manager) then
-        if cache.managerSearched ~= nil and os.time() - cache.managerSearched < MANAGER_SEARCH_EVERY then return nil end
-        cache.managerSearched = os.time()
-        manager = nil
-        for _, candidate in ipairs(FindAllOf("RGGolfGameManager") or {}) do
-            if candidate:IsValid() and not candidate:GetFName():ToString():find("^Default__") then manager = candidate end
-        end
-        cache.golfManager = manager
+    if valid(manager) then return manager end
+    if cache.managerSearched ~= nil and os.time() - cache.managerSearched < MANAGER_SEARCH_EVERY then return nil end
+    cache.managerSearched = os.time()
+    manager = nil
+    for _, candidate in ipairs(FindAllOf("RGGolfGameManager") or {}) do
+        if candidate:IsValid() and not candidate:GetFName():ToString():find("^Default__") then manager = candidate end
     end
+    cache.golfManager = manager
+    return manager
+end
+
+-- The ball the golf round has registered for a player, or nil.
+function Golf.playerBall(playerState)
+    local manager = Golf.manager()
     if manager == nil then return nil end
     local ball = manager:GetGolfBall(playerState)
     if valid(ball) then return ball end
     return nil
+end
+
+-- Where the current hole's cup is ({X, Y, Z}, on the green), or nil outside a round.
+function Golf.currentCup()
+    local manager = Golf.manager()
+    if manager == nil then return nil end
+    local hole = manager.CurrentHole
+    if not valid(hole) or not valid(hole.CupComponent) then return nil end
+    local l = hole.CupComponent:K2_GetComponentLocation()
+    return { X = l.X, Y = l.Y, Z = l.Z }
+end
+
+-- Whether this machine runs a ball's physics, so that changing its velocity sticks: the player the
+-- game has handed the ball to (its ClientAuthoritativeOwner), or else the host. In a hosted round
+-- the host was seen simulating the balls (no physics owner).
+function Golf.simulatesHere(ball)
+    local ok, owner = pcall(function() return ball.ClientAuthoritativeOwner end)
+    if ok and valid(owner) then return owner:IsLocalController() end
+    return ball:HasAuthority()
 end
 
 -- Hands `ball` to a putter's head the way the head touching it does: the touch sets the head's
@@ -244,6 +268,22 @@ function Golf.onHeadTouch(onTouch)
             if valid(actor) and valid(ballClass) and actor:IsA(ballClass) then
                 notify(touchListeners, context:get(), actor)
             end
+        end)
+    end)
+end
+
+-- Calls onDrag(playerState, power) on the host each time a player's game reports how far their
+-- putter is drawn (the drag meter: negative while drawing back, positive through the ball). Every
+-- player's game reports it to the host through Server_ReportSwingDrag, which only runs there.
+function Golf.onSwingDrag(onDrag)
+    ExecuteInGameThread(function()
+        RegisterHook("/Script/Ride.RGPlayerController:Server_ReportSwingDrag", function(context, swing, power)
+            local ok, err = pcall(function()
+                local controller = context:get()
+                if not valid(controller) or not valid(controller.PlayerState) then return end
+                onDrag(controller.PlayerState, unwrap(power))
+            end)
+            if not ok then print("[GolfHeavenPlus] swing drag: " .. tostring(err) .. "\n") end
         end)
     end)
 end

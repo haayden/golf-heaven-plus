@@ -3,7 +3,7 @@
 -- has to reach the hole much faster than a real one and skips over it: in recorded putts every ball
 -- slower than ~210 cm/s dropped and faster ones rolled out, even ones that would have stopped a metre
 -- past the hole. A real putt on line that would finish ~2 m past still drops; this restores that.
--- Only the host simulates balls, so only the host changes anything.
+-- Only the machine simulating a ball (the host, in a hosted round) changes it.
 local Golf = require("golf")
 local Loop = require("loop")
 
@@ -100,7 +100,7 @@ local function step(entry, t)
     -- Fast balls cross the hole in a frame or two, so test the whole path since the last frame.
     local distance, at = Cup.closestApproach(last, p, cup)
     local onRim = at.Z > cup.Z - 2 and at.Z < cup.Z + BALL_RADIUS + RIM_BAND
-    if distance < HOLE_RADIUS and onRim then
+    if distance < HOLE_RADIUS and onRim and Golf.simulatesHere(ball) then
         if entry.over ~= cup then
             entry.over = cup
             local offset = Cup.closestApproach({ X = at.X - v.X, Y = at.Y - v.Y, Z = at.Z }, { X = at.X + v.X, Y = at.Y + v.Y, Z = at.Z }, cup)
@@ -132,9 +132,15 @@ function Cup.update()
     end
 end
 
+-- The cup nearest `p` ({X, Y, Z} on the green, actor), or nil if the level has none.
+function Cup.nearest(p)
+    loadCups()
+    return nearestCup(p)
+end
+
 -- Watch a ball that was just hit until it stops.
 function Cup.track(ball)
-    if not enabled() or not valid(ball) or not ball:HasAuthority() then return end
+    if not enabled() or not valid(ball) then return end
     loadCups()
     local key = ball:GetAddress()
     local entry = tracked[key]

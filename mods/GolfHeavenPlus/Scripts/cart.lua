@@ -1,8 +1,9 @@
 -- Fast golf cart. The game's cart tops out around 40 km/h: one 4.70 gear, a 4500 RPM limiter and
 -- 250 Nm on 35 cm wheels. The rev limit is fixed once the cart exists, so this doubles the
 -- engine's torque and, while the driver holds the throttle with wheels on the ground, pushes the
--- cart on towards a higher top speed. The driver's own copy of the game simulates the cart, so it
--- works for whoever drives with the mod.
+-- cart on towards a higher top speed. Holding Left Shift with the throttle down is turbo: a harder
+-- push towards about 125 km/h. The driver's own copy of the game simulates the cart, so it works
+-- for whoever drives with the mod.
 local Golf = require("golf")
 local Loop = require("loop")
 
@@ -14,6 +15,9 @@ local TORQUE = 500        -- Nm, stock 250
 local TOP_SPEED = 2200    -- cm/s (about 80 km/h), stock about 41 km/h
 local PUSH = 450          -- cm/s² of extra acceleration from a standstill, fading to nothing at TOP_SPEED
 local MIN_WHEELS_DOWN = 2 -- wheels touching the ground before pushing, so a jump never becomes a flight
+local TURBO_KEY = "LeftShift"
+local TURBO_TOP_SPEED = 3500 -- cm/s (about 125 km/h) while the turbo key is held
+local TURBO_PUSH = 1500      -- cm/s² of extra acceleration from a standstill with turbo
 
 -- Extra acceleration (cm/s²) for a cart going forward at `speed` cm/s with `throttle` (0-1).
 function Cart.push(speed, throttle, topSpeed, push)
@@ -25,7 +29,10 @@ end
 local enabled = function() return true end
 local carts = {} -- golf carts, collected as the game creates them
 local tuned = {} -- cart address -> true once its torque is raised
-local NONE = nil
+local NONE, turboKey = nil, nil
+local turboNoted = false
+
+local function log(message) print("[GolfHeavenPlus] " .. message .. "\n") end
 
 local function valid(object) return object ~= nil and object:IsValid() end
 
@@ -50,7 +57,17 @@ local function wheelsDown(movement)
     return down
 end
 
-local function drive(cart)
+-- Whether the driver is holding the turbo key. A failed check is logged once and counts as no.
+local function turbo(controller)
+    local ok, down = pcall(function() return controller:IsInputKeyDown(turboKey) end)
+    if not turboNoted and (not ok or down == true) then
+        turboNoted = true
+        log(ok and "cart: turbo" or ("cart: can't read the turbo key: " .. tostring(down)))
+    end
+    return ok and down == true
+end
+
+local function drive(cart, controller)
     local movement = cart[MOVEMENT]
     if not valid(movement) then return end
     local key = cart:GetAddress()
@@ -58,7 +75,9 @@ local function drive(cart)
         movement:SetMaxEngineTorque(TORQUE)
         tuned[key] = true
     end
-    local extra = Cart.push(movement:GetForwardSpeed(), movement:GetThrottleInput(), TOP_SPEED, PUSH)
+    local top, push = TOP_SPEED, PUSH
+    if turbo(controller) then top, push = TURBO_TOP_SPEED, TURBO_PUSH end
+    local extra = Cart.push(movement:GetForwardSpeed(), movement:GetThrottleInput(), top, push)
     if extra <= 0 or wheelsDown(movement) < MIN_WHEELS_DOWN then return end
     local f = cart:GetActorForwardVector()
     cart.Mesh:AddForce({ X = f.X * extra, Y = f.Y * extra, Z = f.Z * extra }, NONE, true)
@@ -73,7 +92,7 @@ function Cart.update()
         if not valid(cart) then
             table.remove(carts, i)
         elseif drivenBy(cart, controller) then
-            drive(cart)
+            drive(cart, controller)
         end
     end
 end
@@ -83,6 +102,7 @@ end
 function Cart.start(isEnabled)
     enabled = isEnabled
     NONE = FName("None")
+    turboKey = { KeyName = FName(TURBO_KEY) }
     ExecuteInGameThread(function()
         LoadAsset(CART_CLASS)
         NotifyOnNewObject(CART_CLASS, remember)

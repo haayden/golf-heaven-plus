@@ -33,6 +33,7 @@ local JUSTIFY_CENTER, JUSTIFY_RIGHT = 1, 2
 local ROUNDED_BOX = 4 -- ESlateBrushDrawType::RoundedBox
 
 local enabled = function() return true end
+local title = function() return "PUTT" end -- the header text
 local ui = nil -- the built widgets, for the HUD they live in
 local counter = 0
 
@@ -142,8 +143,8 @@ local function build(hud)
     marker:SetVisibility(COLLAPSED)
 
     ui = {
-        hud = hud, root = size, distance = distance, fillSlot = fillSlot, marker = marker, markerSlot = markerSlot,
-        shown = nil, depth = nil, text = nil, last = false,
+        hud = hud, root = size, title = title, distance = distance, fillSlot = fillSlot, marker = marker,
+        markerSlot = markerSlot, shown = nil, depth = nil, text = nil, last = false, header = "PUTT",
     }
     size:SetVisibility(COLLAPSED)
 end
@@ -169,6 +170,11 @@ function Gauge.update()
 
     local status = Putt.status()
     show(true)
+    local header = title()
+    if header ~= ui.header then
+        ui.header = header
+        ui.title:SetText(FText(header))
+    end
     if status.depth ~= ui.depth then
         ui.depth = status.depth
         local top = Gauge.depthY(status.depth)
@@ -192,9 +198,11 @@ function Gauge.update()
     end
 end
 
--- isEnabled: function returning whether backswing putting (Real Putting) is on.
-function Gauge.start(isEnabled)
+-- isEnabled: function returning whether backswing putting (Real Putting) is on. header: function
+-- returning the panel's title text.
+function Gauge.start(isEnabled, header)
     enabled = isEnabled
+    title = header or title
     Loop.every(FRAMES_PER_UPDATE, "putt gauge", Gauge.update)
 end
 
