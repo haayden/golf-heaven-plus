@@ -9,6 +9,7 @@ local Putt = require("putt")
 local Readout = require("readout")
 local Cart = require("cart")
 local Scorecard = require("scorecard")
+local Gauge = require("gauge")
 
 local MOD_DIR = debug.getinfo(1, "S").source:match("^@(.*)[/\\]Scripts[/\\]")
 local CONFIG_PATH = MOD_DIR .. "/config.txt"
@@ -45,6 +46,7 @@ start("aim assist", function() Aim.start(function() return settings.aim end) end
 start("cup capture", function() Cup.start(putting) end)
 start("backswing putting", function() Putt.start(putting) end)
 start("power readout", function() Readout.start(putting) end)
+start("putt gauge", function() Gauge.start(putting) end)
 start("fast cart", function() Cart.start(function() return settings.cart end) end)
 start("scorecard cleanup", function() Scorecard.start() end)
 

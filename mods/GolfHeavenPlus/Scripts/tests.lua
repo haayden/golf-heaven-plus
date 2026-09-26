@@ -265,6 +265,28 @@ test("putt launch speed inverts the fit of recorded putts", function()
     eq(Putt.launchSpeed(0), 0, "no distance")
 end)
 
+test("depthFor undoes distance", function()
+    for _, depth in ipairs({ 0, 0.05, 0.14, 0.5, 1 }) do
+        near(Putt.depthFor(Putt.distance(depth)), depth, "depth " .. depth, 1e-9)
+    end
+    near(Putt.depthFor(5000), 1, "past full is full")
+end)
+
+local Gauge = require("gauge")
+
+test("gauge bar rises with the backswing and stays inside its track", function()
+    local bottom, top = Gauge.depthY(0), Gauge.depthY(1)
+    assert(top < bottom, "top above bottom")
+    local previous = bottom
+    for _, depth in ipairs({ 0.1, 0.3, 0.6, 0.9 }) do
+        local y = Gauge.depthY(depth)
+        assert(y < previous and y > top, "monotonic at " .. depth)
+        previous = y
+    end
+    eq(Gauge.depthY(-1), bottom, "clamped low")
+    eq(Gauge.depthY(2), top, "clamped high")
+end)
+
 local Readout = require("readout")
 
 test("readout formats distances and power the way the club panel does", function()

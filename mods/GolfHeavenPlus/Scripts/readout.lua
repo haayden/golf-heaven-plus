@@ -39,7 +39,7 @@ local function lines(club)
         if not puttingEnabled() then return nil end -- the game's own putting can't be predicted
         local status = Putt.status()
         if status.live then return "Backswing putt", Readout.metres(status.distance) end
-        if status.distance then return "Last putt", Readout.metres(status.distance) end
+        if status.last then return "Last putt", Readout.metres(status.last) end
         return nil
     end
     local power, swinging, meter = Golf.power(club)

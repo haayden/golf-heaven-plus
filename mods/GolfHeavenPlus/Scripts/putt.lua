@@ -84,10 +84,20 @@ function Putt.update()
     if live then stroke.depth = math.max(stroke.depth, -Golf.puttDrag(putter)) end
 end
 
--- What the club panel shows for the putter: the distance being drawn back for, or the last putt.
+-- Backswing depth (0-1) that asks for `distance` cm: the inverse of Putt.distance.
+function Putt.depthFor(distance)
+    return math.max(0, math.min(1, distance / FULL_DISTANCE)) ^ (1 / CURVE)
+end
+
+-- What the displays show for the putter: the stroke being drawn back (live, depth, distance) and
+-- the last putt's distance.
 function Putt.status()
-    if stroke.live then return { live = true, distance = Putt.distance(stroke.depth) } end
-    return { live = false, distance = last }
+    return {
+        live = stroke.live,
+        depth = stroke.live and stroke.depth or 0,
+        distance = stroke.live and Putt.distance(stroke.depth) or last,
+        last = last,
+    }
 end
 
 -- The local putter's backswing so far, including a stroke whose head went live this very frame.
