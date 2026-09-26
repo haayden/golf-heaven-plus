@@ -1,6 +1,8 @@
 -- The "Mods" sign on the main-menu signpost and the settings page it opens.
 -- Every sign is a real WG_MainMenuButton_C that copies an existing sign's style, width and shadow,
 -- so it looks like it shipped with the game.
+local Loop = require("loop")
+
 local Menu = {}
 
 local MENU_CLASS = "/Game/Ride/Menu/WG_MainMenu.WG_MainMenu_C"
@@ -234,7 +236,7 @@ end
 -- The menu's bound widgets exist right after construction, but its signs are only laid out a few
 -- frames later. Wait until Exit has a real size before touching the signpost.
 local function setupWhenReady(menu, triesLeft)
-    if not valid(menu) then return end
+    if not valid(menu) or Loop.quitting() then return end
     local ready = valid(menu.ExitButton) and valid(menu.ExitButton:GetParent())
         and menu.ExitButton:GetDesiredSize().Y > 0
     if ready then

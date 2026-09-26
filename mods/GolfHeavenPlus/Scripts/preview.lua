@@ -4,6 +4,7 @@
 local Golf = require("golf")
 local Trajectory = require("trajectory")
 local Render = require("render")
+local Loop = require("loop")
 
 local Preview = {}
 
@@ -152,7 +153,7 @@ function Preview.start(isEnabled)
         local ok, removed = pcall(Render.removeStale)
         if ok and removed > 0 then log(string.format("removed %d markers left by a previous load", removed)) end
     end)
-    LoopInGameThreadAfterFrames(FRAMES_PER_UPDATE, function()
+    Loop.every(FRAMES_PER_UPDATE, "trajectory", function()
         local ok, err = pcall(update)
         if not ok then hide("error: " .. tostring(err)) end
     end)

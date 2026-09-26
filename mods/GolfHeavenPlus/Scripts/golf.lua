@@ -4,6 +4,8 @@ local Golf = {}
 
 local CLUB_CLASS = "/Game/Ride/Interactables/Golf/GolfClub/BP_Interactable_GolfClub.BP_Interactable_GolfClub_C"
 local BALL_CLASS = "/Game/Ride/Interactables/Golf/GolfClub/BP_Interactable_GolfBall.BP_Interactable_GolfBall_C"
+local HEAD_CLASS = "/Game/Ride/Interactables/Golf/GolfClub/BP_ClubHeadCollision.BP_ClubHeadCollision_C"
+local HEAD_OVERLAP = "BndEvt__BP_ClubHeadCollision_StaticMesh_K2Node_ComponentBoundEvent_0_ComponentBeginOverlapSignature__DelegateSignature"
 local DEFAULT_GRAVITY_Z = -980
 local SHOT_YAW_OFFSET = -90      -- golfers stand side-on: the ball leaves 90 degrees from where they face
 local LAUNCH_LIFT = 4            -- the club launches from about 4 cm above the ball's origin
@@ -84,17 +86,50 @@ function Golf.addressedBall(pawn, last)
 end
 
 -- Power the next shot would use: the live meter while swinging, full power while lining up.
+-- Returns the power the distance uses, whether a swing is under way, and the raw meter (0-1).
 function Golf.power(club)
     local swing = club.RGGolfSwing
-    if not valid(swing) then return 1, false end
+    if not valid(swing) then return 1, false, 1 end
     local stroke = swing.ActiveStroke
     local swinging = valid(stroke) and stroke:IsStrokeActive()
-    if not swinging then return 1, false end
+    if not swinging then return 1, false, 1 end
     -- Some swing types count as active from the moment the ball is addressed, with the meter
     -- still at zero: treat that as lining up and show the full-power shot.
     local meter = swing.ReplicatedCurrentPower
-    if meter == nil or meter <= 0.001 then return 1, false end
-    return swing:ApplyPowerCurve(meter), true
+    if meter == nil or meter <= 0.001 then return 1, false, 1 end
+    return swing:ApplyPowerCurve(meter), true, meter
+end
+
+-- Carry distance in cm this club gives at `power` from the current lie.
+function Golf.carry(club, power)
+    local lie = club.SurfaceTypMultiplier
+    if lie == nil or lie <= 0 then lie = 1 end
+    return club.MaxDistance * club.DirectionalMultiplier * power * lie
+end
+
+-- How far the putter is drawn back: 0 at address, 1 at a full backswing (the drag meter goes
+-- negative while drawing back and positive through the ball).
+function Golf.puttDrag(club)
+    local swing = club.RGGolfSwing
+    if not valid(swing) then return 0 end
+    return swing.ReplicatedCurrentPower or 0
+end
+
+-- Whether the putter's head can hit a ball right now. The game switches its hit collision on
+-- when the player clicks to putt (dropping the head behind the ball) and off after the stroke.
+function Golf.headLive(club)
+    local proxy = club.ClubHeadCollisionProxy
+    if not valid(proxy) then return false end
+    local ok, mode = pcall(function() return proxy.StaticMesh:GetCollisionEnabled() end)
+    return ok and mode ~= 0
+end
+
+-- Whether a player state belongs to the local player.
+function Golf.isLocal(playerState)
+    local controller = Golf.localController()
+    if not valid(controller) or not valid(playerState) then return false end
+    local mine = controller.PlayerState
+    return valid(mine) and mine:GetAddress() == playerState:GetAddress()
 end
 
 -- Everything the prediction needs for this club and ball, read live from the game.
@@ -136,14 +171,43 @@ local function puttedBy(playerState, launch)
     return flat > 0 and math.atan(launch.Z, flat) < PUTT_ELEVATION
 end
 
--- Calls onHit(ball, putt) right after any club launches a ball; putt says whether it was a putter.
--- The game applies each hit twice (the hitter's copy and the server's), so onHit can run twice.
+local hitListeners, touchListeners = {}, {}
+
+local function notify(listeners, ...)
+    for _, listener in ipairs(listeners) do
+        local ok, err = pcall(listener, ...)
+        if not ok then print("[GolfHeavenPlus] " .. tostring(err) .. "\n") end
+    end
+end
+
+-- Calls onHit(ball, putt, hitter) right after any club launches a ball: putt says whether it was
+-- a putter, hitter is the hitting player's state. The game applies each hit twice (the hitter's
+-- copy and the server's), so onHit can run twice for one stroke.
 function Golf.onHit(onHit)
+    hitListeners[#hitListeners + 1] = onHit
+    if #hitListeners > 1 then return end
     ExecuteInGameThread(function()
         LoadAsset(BALL_CLASS)
         RegisterHook(BALL_CLASS .. ":OnHitByGolfClub", function(context, component, launchForce, impactOffset, instigator)
-            local ball = context:get()
-            onHit(ball, puttedBy(unwrap(instigator), unwrap(launchForce)))
+            local hitter = unwrap(instigator)
+            notify(hitListeners, context:get(), puttedBy(hitter, unwrap(launchForce)), hitter)
+        end)
+    end)
+end
+
+-- Calls onTouch(head, ball) when a putter's head collision first overlaps a ball. The game launches
+-- the ball from the head's next tick (it keeps the ball in the head's PendingHit until then).
+function Golf.onHeadTouch(onTouch)
+    touchListeners[#touchListeners + 1] = onTouch
+    if #touchListeners > 1 then return end
+    ExecuteInGameThread(function()
+        LoadAsset(HEAD_CLASS)
+        RegisterHook(HEAD_CLASS .. ":" .. HEAD_OVERLAP, function(context, component, other)
+            local actor = unwrap(other)
+            local ballClass = static("ballClass", BALL_CLASS)
+            if valid(actor) and valid(ballClass) and actor:IsA(ballClass) then
+                notify(touchListeners, context:get(), actor)
+            end
         end)
     end)
 end

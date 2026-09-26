@@ -5,6 +5,7 @@
 -- past the hole. A real putt on line that would finish ~2 m past still drops; this restores that.
 -- Only the host simulates balls, so only the host changes anything.
 local Golf = require("golf")
+local Loop = require("loop")
 
 local Cup = {}
 
@@ -152,10 +153,7 @@ end
 function Cup.start(isEnabled)
     Cup.init(isEnabled)
     Golf.onHit(function(ball) Cup.track(ball) end)
-    LoopInGameThreadAfterFrames(1, function()
-        local ok, err = pcall(Cup.update)
-        if not ok then log("cup: " .. tostring(err)) end
-    end)
+    Loop.every(1, "cup", Cup.update)
 end
 
 return Cup

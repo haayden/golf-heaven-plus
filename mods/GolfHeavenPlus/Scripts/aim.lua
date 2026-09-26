@@ -3,6 +3,7 @@
 -- front of them, and each scroll-wheel notch nudges the aim a degree (also while holding
 -- right-click to look down the fairway). Walking or swinging leaves everything to the game.
 local Golf = require("golf")
+local Loop = require("loop")
 
 local Aim = {}
 
@@ -43,16 +44,17 @@ local function walking(pawn)
     return input.X * input.X + input.Y * input.Y > 0.01
 end
 
--- Turns the golfer's stance; the next tick sees the body turn and walks them around the ball.
-local function nudge(controller, pawn, degrees)
+-- Turns the golfer's stance and walks them around the ball in the same frame, so nothing (a
+-- putter head included) ever swings past the ball on the way.
+local function nudge(controller, pawn, ball, degrees)
+    local r = pawn:K2_GetActorRotation()
+    local around = Aim.orbit(pawn:K2_GetActorLocation(), ball:K2_GetActorLocation(), degrees)
+    pawn:K2_SetActorLocationAndRotation(around, { Pitch = r.Pitch, Yaw = r.Yaw + degrees, Roll = r.Roll }, true, {}, false)
     if pawn.bUseControllerRotationYaw then
-        local r = controller:GetControlRotation()
-        controller:SetControlRotation({ Pitch = r.Pitch, Yaw = r.Yaw + degrees, Roll = r.Roll })
-    else
-        -- Free look: the camera is off on its own, so turn the body directly.
-        local r = pawn:K2_GetActorRotation()
-        pawn:K2_SetActorRotation({ Pitch = r.Pitch, Yaw = r.Yaw + degrees, Roll = r.Roll }, false)
+        local c = controller:GetControlRotation()
+        controller:SetControlRotation({ Pitch = c.Pitch, Yaw = c.Yaw + degrees, Roll = c.Roll })
     end
+    lastYaw = r.Yaw + degrees -- already walked around; nothing left for the next tick to follow
 end
 
 local function tick()
@@ -66,9 +68,7 @@ local function tick()
     local turned = lastYaw and Aim.turn(lastYaw, yaw) or 0
     lastYaw = yaw
     local club = Golf.heldClub(pawn)
-    -- Moving a golfer whose putter head rests against the ball knocks it: the game counts the
-    -- touch as a stroke. Leave putting alone until that can be done safely.
-    if club == nil or Golf.isPutter(club) then
+    if club == nil then
         addressed = nil
         return
     end
@@ -76,26 +76,27 @@ local function tick()
     if addressed == nil or walking(pawn) then return end
     local _, swinging = Golf.power(club)
     if swinging then return end
+    -- A putter's head is live from the click until the stroke ends; moving the golfer then would
+    -- drag it into the ball, and the game counts any touch as a stroke. Aim only with it lifted.
+    if Golf.isPutter(club) and Golf.headLive(club) then return end
 
     if turned ~= 0 and math.abs(turned) < MAX_TURN then
         local around = Aim.orbit(pawn:K2_GetActorLocation(), addressed:K2_GetActorLocation(), turned)
         pawn:K2_SetActorLocation(around, true, {}, false)
     end
     local notches = scrolled(controller)
-    if notches ~= 0 then nudge(controller, pawn, notches * WHEEL_STEP) end
+    if notches ~= 0 then nudge(controller, pawn, addressed, notches * WHEEL_STEP) end
 end
 
 -- isEnabled: function returning whether the aim assist setting is on.
 function Aim.start(isEnabled)
     enabled = isEnabled
-    local lastError = nil
-    LoopInGameThreadAfterFrames(1, function()
+    Loop.every(1, "aim", function()
         local ok, err = pcall(tick)
         if not ok then
             lastYaw = nil
-            if tostring(err) ~= lastError then print("[GolfHeavenPlus] aim: " .. tostring(err) .. "\n") end
+            error(err, 0)
         end
-        lastError = not ok and tostring(err) or nil
     end)
 end
 

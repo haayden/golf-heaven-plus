@@ -246,6 +246,34 @@ test("closest approach catches a ball that jumped over the hole between frames",
     near(Cup.closestApproach(point(2, 2, 0), point(2, 2, 0), point(0, 0, 0)), math.sqrt(8), "no movement")
 end)
 
+local Putt = require("putt")
+
+test("backswing distance runs from nothing to the putter's 20 m, finer for short putts", function()
+    near(Putt.distance(0), 0, "no backswing")
+    near(Putt.distance(1), 2000, "full backswing")
+    near(Putt.distance(1.5), 2000, "clamped")
+    near(Putt.distance(0.25), 2000 * 0.125, "a quarter backswing is an eighth of the distance")
+    assert(Putt.distance(0.14) > 90 and Putt.distance(0.14) < 110, "about 1 m at 14%: " .. Putt.distance(0.14))
+end)
+
+test("putt launch speed inverts the fit of recorded putts", function()
+    for _, cm in ipairs({ 50, 100, 300, 1000, 2000 }) do
+        local v = Putt.launchSpeed(cm)
+        near(0.000595532 * v ^ 2.1474, cm, "round trip " .. cm, 1e-6)
+    end
+    near(Putt.launchSpeed(100), 271, "1 m", 1)
+    eq(Putt.launchSpeed(0), 0, "no distance")
+end)
+
+local Readout = require("readout")
+
+test("readout formats distances and power the way the club panel does", function()
+    eq(Readout.metres(320), "3.2 m", "short")
+    eq(Readout.metres(15034), "150 m", "long")
+    eq(Readout.percent(0.634), "63%", "percent")
+    eq(Readout.percent(1), "100%", "full")
+end)
+
 local Trajectory = require("trajectory")
 
 test("launchVelocity reproduces the game's launch for a recorded driver shot", function()

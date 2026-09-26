@@ -88,10 +88,20 @@ local function runTests()
     return tostring(report)
 end
 
+-- Restarting a mod while UE4SS is running one of its loops crashes the game inside UE4SS. Mods that
+-- watch "<Name>.Quit" (GolfHeavenPlus does) cancel their loops first; give them time to.
+local QUIT_GRACE_MS = 500
+
+local function restartMod(name)
+    ModRef:SetSharedVariable(name .. ".Quit", true)
+    ExecuteInGameThreadWithDelay(QUIT_GRACE_MS, function() RestartMod(name) end)
+    return string.format("stopping %s's loops, restarting it in %d ms", name, QUIT_GRACE_MS)
+end
+
 local function dispatch(command)
     local verb, rest = command:match("^%s*(%S+)%s*(.-)%s*$")
     if verb == "ping" then return "pong" end
-    if verb == "restart" then RestartMod(rest) return "restarting " .. rest end
+    if verb == "restart" then return restartMod(rest) end
     if verb == "console" then return runConsole(rest) end
     if verb == "lua" then return runLua(rest) end
     if verb == "test" then return runTests() end
