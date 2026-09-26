@@ -124,6 +124,38 @@ function Golf.headLive(club)
     return ok and mode ~= 0
 end
 
+-- The ball the golf round has registered for a player, or nil (always nil on the driving range).
+local MANAGER_SEARCH_EVERY = 10 -- seconds: FindAllOf is slow, and the range has no manager to find
+
+function Golf.playerBall(playerState)
+    local manager = cache.golfManager
+    if not valid(manager) then
+        if cache.managerSearched ~= nil and os.time() - cache.managerSearched < MANAGER_SEARCH_EVERY then return nil end
+        cache.managerSearched = os.time()
+        manager = nil
+        for _, candidate in ipairs(FindAllOf("RGGolfGameManager") or {}) do
+            if candidate:IsValid() and not candidate:GetFName():ToString():find("^Default__") then manager = candidate end
+        end
+        cache.golfManager = manager
+    end
+    if manager == nil then return nil end
+    local ball = manager:GetGolfBall(playerState)
+    if valid(ball) then return ball end
+    return nil
+end
+
+-- Hands `ball` to a putter's head the way the head touching it does: the touch sets the head's
+-- PendingHit, and the head's next tick strikes it through the game's own PutBall with the head's
+-- velocity. Only the two variables are written here; calling PutBall from Lua crashed the game.
+-- The ball must be at rest within the golfer's reach.
+function Golf.queuePutterHit(club, ball, pawn)
+    local head = club.ClubHeadCollisionProxy
+    if not valid(head) or not hittable(ball, pawn) then return false end
+    head.ActorToHit = ball
+    head.PendingHit = ball
+    return true
+end
+
 -- Whether a player state belongs to the local player.
 function Golf.isLocal(playerState)
     local controller = Golf.localController()
@@ -165,8 +197,10 @@ end
 -- Whether a launch came from a putter: the hitter's club when the game knows who hit, otherwise
 -- the putter's low launch.
 local function puttedBy(playerState, launch)
-    local ok, club = pcall(function() return Golf.heldClub(playerState:GetPawn()) end)
-    if ok and club ~= nil then return Golf.isPutter(club) end
+    if valid(playerState) then
+        local ok, club = pcall(function() return Golf.heldClub(playerState:GetPawn()) end)
+        if ok and club ~= nil then return Golf.isPutter(club) end
+    end
     local flat = math.sqrt(launch.X * launch.X + launch.Y * launch.Y)
     return flat > 0 and math.atan(launch.Z, flat) < PUTT_ELEVATION
 end
