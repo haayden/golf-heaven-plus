@@ -1,15 +1,13 @@
 -- Power readout: live swing power and how far it sends the ball, written into the game's own club
 -- panel (the "Driver / Carry Distance / 150 m" box), and the last shot's numbers once it's hit, so a
--- shot can be repeated. For the putter it shows the distance the backswing is asking for.
+-- shot can be repeated. The putter has its own gauge (gauge.lua).
 local Golf = require("golf")
-local Putt = require("putt")
 local Loop = require("loop")
 
 local Readout = {}
 
 local FRAMES_PER_UPDATE = 3
 
-local puttingEnabled = function() return true end
 local lastShot = {} -- club class name -> { meter, carry } of the local player's last full swing
 local live = nil    -- the local player's swing in progress: { class, meter, carry }
 
@@ -35,13 +33,7 @@ local function setText(block, text)
 end
 
 local function lines(club)
-    if Golf.isPutter(club) then
-        if not puttingEnabled() then return nil end -- the game's own putting can't be predicted
-        local status = Putt.status()
-        if status.live then return "Backswing putt", Readout.metres(status.distance) end
-        if status.last then return "Last putt", Readout.metres(status.last) end
-        return nil
-    end
+    if Golf.isPutter(club) then return nil end -- the putt gauge shows the putter's numbers
     local power, swinging, meter = Golf.power(club)
     local class = club:GetClass():GetFName():ToString()
     if swinging then
@@ -76,9 +68,7 @@ local function onHit(ball, putt, hitter)
     live = nil
 end
 
--- isPuttingEnabled: function returning whether backswing putting (Real Putting) is on.
-function Readout.start(isPuttingEnabled)
-    puttingEnabled = isPuttingEnabled
+function Readout.start()
     Golf.onHit(onHit)
     Loop.every(FRAMES_PER_UPDATE, "readout", Readout.update)
 end

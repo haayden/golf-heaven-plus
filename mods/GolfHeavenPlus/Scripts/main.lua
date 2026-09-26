@@ -45,7 +45,7 @@ start("trajectory", function() Preview.start(function() return settings.trajecto
 start("aim assist", function() Aim.start(function() return settings.aim end) end)
 start("cup capture", function() Cup.start(putting) end)
 start("backswing putting", function() Putt.start(putting) end)
-start("power readout", function() Readout.start(putting) end)
+start("power readout", function() Readout.start() end)
 start("putt gauge", function() Gauge.start(putting) end)
 start("fast cart", function() Cart.start(function() return settings.cart end) end)
 start("scorecard cleanup", function() Scorecard.start() end)

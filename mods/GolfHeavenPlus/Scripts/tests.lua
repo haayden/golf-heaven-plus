@@ -252,8 +252,8 @@ test("backswing distance runs from nothing to the putter's 20 m, finer for short
     near(Putt.distance(0), 0, "no backswing")
     near(Putt.distance(1), 2000, "full backswing")
     near(Putt.distance(1.5), 2000, "clamped")
-    near(Putt.distance(0.25), 2000 * 0.125, "a quarter backswing is an eighth of the distance")
-    assert(Putt.distance(0.14) > 90 and Putt.distance(0.14) < 110, "about 1 m at 14%: " .. Putt.distance(0.14))
+    near(Putt.distance(0.5), 500, "half a backswing is a quarter of the distance")
+    assert(Putt.distance(0.22) > 90 and Putt.distance(0.22) < 110, "about 1 m at 22%: " .. Putt.distance(0.22))
 end)
 
 test("putt launch speed inverts the fit of recorded putts", function()

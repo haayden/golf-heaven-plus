@@ -9,7 +9,8 @@ local Loop = require("loop")
 local Putt = {}
 
 local FULL_DISTANCE = 2000       -- cm for a full backswing: the game's putter panel says "Max Distance 20 m"
-local CURVE = 1.5                -- distance grows with backswing^1.5, so short putts get finer control
+local CURVE = 2                  -- distance grows with backswing^2: short putts, the common ones, get
+                                 -- most of the pull (1 m at 22%, 2 m at 32%, 5 m at 50%, 10 m at 71%)
 local FIT_SCALE = 0.000595532    -- level putts in 45 recordings rolled 0.000596 * launch^2.147 cm
 local FIT_POWER = 2.1474         -- (median error 9%), hop off the putter face included
 local NO_BACKSWING = 0.01        -- less backswing than this is a touch, not a stroke
